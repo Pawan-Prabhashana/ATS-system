@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Catalist design tokens. Warm-neutral "stone" base, near-black ink for
+   primary actions, and a restrained tier palette carried mostly by small
+   saturated dots (see DESIGN_NOTES.md).
+--------------------------------------------------------------------------- */
+:root {
+  --bg: #faf9f7;          /* warm off-white page */
+  --surface: #ffffff;     /* cards */
+  --surface-2: #f5f4f1;   /* inset / hover */
+  --ink: #1c1917;         /* near-black text + primary action */
+  --ink-2: #57534e;       /* secondary text */
+  --muted: #a8a29e;       /* tertiary / meta */
+  --line: #e8e5e1;        /* hairline borders */
+  --line-2: #d9d5d0;      /* stronger border */
+  --link: #2563eb;
+
+  /* Tier accents — used as small dots + text, never as loud fills. */
+  --tier-shortlist: #0f766e;      /* deep teal */
+  --tier-shortlist-dot: #14b8a6;
+  --tier-shortlist-tint: #edfbf7;
+  --tier-borderline: #a16207;     /* ochre */
+  --tier-borderline-dot: #eab308;
+  --tier-borderline-tint: #fdf7ea;
+  --tier-reject: #a13b3b;         /* muted clay */
+  --tier-reject-dot: #d06a6a;
+  --tier-reject-tint: #fbf1f0;
+
+  /* Status accents (human decision) — quieter, mostly neutral. */
+  --status-sent: #4338ca;         /* indigo, the "action taken" state */
+  --status-sent-tint: #eef0fb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16151a;
+    --surface: #1e1d23;
+    --surface-2: #26252c;
+    --ink: #f2f0ee;
+    --ink-2: #b4afa8;
+    --muted: #837e78;
+    --line: #302f37;
+    --line-2: #3c3b44;
+    --link: #7ea2ff;
+
+    --tier-shortlist: #5eddc9;
+    --tier-shortlist-dot: #2dd4bf;
+    --tier-shortlist-tint: #10231f;
+    --tier-borderline: #e8bf6a;
+    --tier-borderline-dot: #eab308;
+    --tier-borderline-tint: #241f10;
+    --tier-reject: #e88f8f;
+    --tier-reject-dot: #d06a6a;
+    --tier-reject-tint: #251312;
+
+    --status-sent: #a5b4fc;
+    --status-sent-tint: #1a1a2e;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-link: var(--link);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Subtle, consistent focus ring for keyboard users. */
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Thin scrollbars inside scroll regions (CV pages, slide-over). */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}

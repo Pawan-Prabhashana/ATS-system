@@ -1,0 +1,31 @@
+{
+  "job_title": "Backend Engineer (Python)",
+  "requires_visual_review": false,
+  "criteria": [
+    {
+      "name": "Python & backend experience",
+      "description": "Depth of professional Python and backend/API development experience.",
+      "weight": 3.0
+    },
+    {
+      "name": "API design & typing",
+      "description": "REST API design, FastAPI, Pydantic/typing familiarity.",
+      "weight": 2.0
+    },
+    {
+      "name": "Testing & quality",
+      "description": "Automated testing (pytest), CI, code review habits.",
+      "weight": 2.0
+    },
+    {
+      "name": "Document/LLM processing",
+      "description": "Exposure to PDF/document processing and LLM/AI integration.",
+      "weight": 1.5
+    },
+    {
+      "name": "Communication & collaboration",
+      "description": "Evidence of teamwork, communication, and cross-functional work.",
+      "weight": 1.0
+    }
+  ]
+}

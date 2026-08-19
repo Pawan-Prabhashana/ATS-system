@@ -1,0 +1,70 @@
+"""FastAPI application factory."""
+from __future__ import annotations
+
+import os
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+from app.api.routes import router
+from app.config import settings
+
+# Dev origins allowed to call the API (the Next.js dev server). Overridable via
+# a comma-separated CATALIST_CORS_ORIGINS for other setups.
+DEFAULT_CORS_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+
+def _cors_origins() -> list[str]:
+    raw = os.getenv("CATALIST_CORS_ORIGINS")
+    if raw:
+        return [o.strip() for o in raw.split(",") if o.strip()]
+    return DEFAULT_CORS_ORIGINS
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # Seed the sample jobs on real server start if the job store is empty. This
+    # fires only when an ASGI server runs the lifespan — NOT on a bare
+    # TestClient(app) instantiation — so tests manage their own job stores.
+    try:
+        from app.store import ensure_jobs_seeded, get_job_repository
+
+        ensure_jobs_seeded(get_job_repository())
+    except Exception as exc:  # pragma: no cover - startup convenience only
+        print(f"[startup] job seeding skipped: {exc}")
+    yield
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="Catalist Recruit Screening",
+        version="0.5.0",
+        description="Phases 1-5: parsing, evaluation, multi-job ingestion, review, email.",
+        lifespan=_lifespan,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins(),
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(router)
+
+    # Serve per-candidate artifacts (CV + page images) as static files so the
+    # frontend can load them by URL. Directory is created if missing.
+    media_dir = settings.data_dir / "candidates"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        "/media/candidates",
+        StaticFiles(directory=str(media_dir)),
+        name="media-candidates",
+    )
+
+    return app
+
+
+app = create_app()

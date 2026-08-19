@@ -1,0 +1,22 @@
+Backend Engineer (Python) — Catalist
+
+We are hiring a Backend Engineer to build and operate the services behind our
+recruitment-automation platform. You will design APIs, work with document
+parsing and LLM-based evaluation pipelines, and ship reliable, well-tested code.
+
+Responsibilities
+- Build and maintain Python services (FastAPI) and data-processing pipelines.
+- Integrate document parsing (PDF text + image extraction) and evaluation logic.
+- Write automated tests and participate in code review.
+- Collaborate with product and hiring teams to iterate on requirements.
+
+Requirements
+- 3+ years of professional Python experience.
+- Solid understanding of REST API design and Pydantic/typing.
+- Experience with testing (pytest) and CI.
+- Familiarity with PDF/document processing is a plus.
+- Exposure to LLM/AI integration is a plus.
+
+Nice to have
+- Experience with cloud deployment and containers.
+- Frontend familiarity (Next.js/TypeScript) for occasional full-stack work.

@@ -1,0 +1,194 @@
+"""Ingestion pipeline: intake -> parse -> dedup -> evaluate -> store."""
+from __future__ import annotations
+
+import shutil
+import tempfile
+from pathlib import Path
+from typing import Optional
+
+from pydantic import BaseModel, Field
+
+from app.config import settings
+from app.evaluation import get_evaluator
+from app.evaluation.base import Evaluator
+from app.intake.base import IntakeSource, RawSubmission
+from app.intake.factory import get_intake_source
+from app.models import CandidateStatus, ParsedCV, Rubric
+from app.parsing import parse_cv_file
+from app.store.base import CandidateRepository
+from app.store.factory import get_candidate_store
+
+# Stable per-candidate artifact layout (served at /media/candidates/<id>/...).
+CANDIDATES_SUBDIR = "candidates"
+STORED_CV_NAME = "cv.pdf"
+
+
+class IngestionFailure(BaseModel):
+    submission_ref: str = Field(..., description="cv_file_ref of the failed submission.")
+    name: Optional[str] = None
+    reason: str
+
+
+class IngestionSummary(BaseModel):
+    processed: int = 0
+    skipped: int = 0
+    failed: int = 0
+    processed_candidate_ids: list[str] = Field(default_factory=list)
+    skipped_candidate_ids: list[str] = Field(default_factory=list)
+    failures: list[IngestionFailure] = Field(default_factory=list)
+
+
+def run_ingestion(
+    job_description: str,
+    rubric: Rubric,
+    *,
+    job_id: str | None = None,
+    intake_source: IntakeSource | None = None,
+    store: CandidateRepository | None = None,
+    evaluator: Evaluator | None = None,
+    work_dir: str | Path | None = None,
+) -> IngestionSummary:
+    """Ingest submissions for ``job_id`` and return a summary.
+
+    When ``job_id`` is given, intake is filtered to that job and resulting
+    candidates are tagged with it (this is how job isolation is enforced). When
+    ``None``, all submissions are ingested and candidates are left unassigned.
+
+    Defaults are resolved via the factories (intake/store/evaluator); everything
+    is injectable for tests. One bad submission is recorded and skipped — it
+    never aborts the batch.
+    """
+    intake_source = intake_source or get_intake_source()
+    store = store or get_candidate_store()
+    evaluator = evaluator or get_evaluator()
+
+    summary = IngestionSummary()
+
+    submissions = intake_source.fetch_new_submissions(job_id)
+
+    # A working dir for downloaded CVs (parse artifacts go under settings.output_dir).
+    tmp_ctx = None
+    if work_dir is None:
+        tmp_ctx = tempfile.TemporaryDirectory(prefix="catalist-ingest-")
+        work_dir = tmp_ctx.name
+    work_dir = Path(work_dir)
+
+    try:
+        for submission in submissions:
+            try:
+                _process_one(
+                    submission,
+                    job_id=job_id,
+                    job_description=job_description,
+                    rubric=rubric,
+                    intake_source=intake_source,
+                    store=store,
+                    evaluator=evaluator,
+                    work_dir=work_dir,
+                    summary=summary,
+                )
+            except Exception as exc:  # noqa: BLE001 - one bad CV must not abort the batch
+                summary.failed += 1
+                summary.failures.append(
+                    IngestionFailure(
+                        submission_ref=submission.cv_file_ref,
+                        name=submission.name,
+                        reason=f"{type(exc).__name__}: {exc}",
+                    )
+                )
+    finally:
+        if tmp_ctx is not None:
+            tmp_ctx.cleanup()
+
+    return summary
+
+
+def _process_one(
+    submission: RawSubmission,
+    *,
+    job_id: str | None,
+    job_description: str,
+    rubric: Rubric,
+    intake_source: IntakeSource,
+    store: CandidateRepository,
+    evaluator: Evaluator,
+    work_dir: Path,
+    summary: IngestionSummary,
+) -> None:
+    # 1. Download the CV into the (temporary) working dir.
+    cv_path = intake_source.download_cv(submission, work_dir)
+
+    # 2. Parse it (raises ValueError on a corrupt/non-PDF file). Parse artifacts
+    #    go to the temp work_dir; the stable copy is made below only for new
+    #    candidates, so we don't do disk work for dedup-skipped ones.
+    candidate, parsed_cv = parse_cv_file(cv_path, output_root=work_dir)
+
+    # 3. Dedup by file hash — repeated ingestion runs stay cheap and safe.
+    existing = store.get_by_file_hash(candidate.file_hash)
+    if existing is not None:
+        summary.skipped += 1
+        summary.skipped_candidate_ids.append(existing.id)
+        return
+
+    # 4. Persist CV + page images to a stable per-candidate dir.
+    artifact_dir, cv_file, page_files = _persist_artifacts(
+        candidate.id, cv_path, parsed_cv
+    )
+
+    # 5. Attach submission identity + job scoping to the candidate.
+    candidate = candidate.model_copy(
+        update={
+            "name": submission.name,
+            "email": submission.email,
+            "job_id": job_id or submission.job_id or "",
+            "status": CandidateStatus.parsed,
+        }
+    )
+
+    # 6. Evaluate, mark scored, persist the record.
+    evaluation = evaluator.evaluate(parsed_cv, job_description, rubric)
+    candidate = candidate.model_copy(update={"status": CandidateStatus.scored})
+    store.upsert(
+        candidate,
+        parsed_cv,
+        evaluation,
+        artifact_dir=artifact_dir,
+        cv_file=cv_file,
+        page_image_files=page_files,
+    )
+
+    summary.processed += 1
+    summary.processed_candidate_ids.append(candidate.id)
+
+
+def _persist_artifacts(
+    candidate_id: str,
+    cv_path: Path,
+    parsed_cv: ParsedCV,
+) -> tuple[str, str, list[str]]:
+    """Copy the CV and rendered page images into ``data/candidates/<id>/``.
+
+    Returns ``(artifact_dir, cv_file, page_image_files)`` where ``artifact_dir``
+    is relative to ``DATA_DIR`` (e.g. ``candidates/<id>``) and the file names are
+    normalised (``cv.pdf``, ``page_1.png``, ...) for stable /media URLs.
+    """
+    rel_dir = f"{CANDIDATES_SUBDIR}/{candidate_id}"
+    dest_dir = settings.data_dir / CANDIDATES_SUBDIR / candidate_id
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    # Original CV.
+    cv_dest = dest_dir / STORED_CV_NAME
+    shutil.copyfile(cv_path, cv_dest)
+
+    # Rendered page images, renamed page_1.<ext>, page_2.<ext>, ... in order.
+    page_files: list[str] = []
+    for page in sorted(parsed_cv.page_images, key=lambda p: p.page_number):
+        src = Path(page.image_path)
+        if not src.exists():
+            continue
+        ext = src.suffix or ".png"
+        name = f"page_{page.page_number}{ext}"
+        shutil.copyfile(src, dest_dir / name)
+        page_files.append(name)
+
+    return rel_dir, STORED_CV_NAME, page_files

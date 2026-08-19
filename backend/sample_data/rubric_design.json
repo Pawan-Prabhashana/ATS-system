@@ -1,0 +1,26 @@
+{
+  "job_title": "Product Designer (Visual/Brand)",
+  "requires_visual_review": true,
+  "criteria": [
+    {
+      "name": "Visual hierarchy & layout",
+      "description": "Quality of the CV's own visual hierarchy, layout, spacing, and section design — assessed from the page images, as a proxy for design craft.",
+      "weight": 3.0
+    },
+    {
+      "name": "Portfolio & design experience",
+      "description": "Depth of product/visual design experience and portfolio evidence.",
+      "weight": 3.0
+    },
+    {
+      "name": "Tooling",
+      "description": "Fluency with design tools (Figma, Sketch, Adobe CC) and prototyping.",
+      "weight": 2.0
+    },
+    {
+      "name": "Collaboration & communication",
+      "description": "Evidence of cross-functional work with product/engineering and clear communication.",
+      "weight": 1.5
+    }
+  ]
+}

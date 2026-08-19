@@ -1,0 +1,26 @@
+# Python
+backend/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Parser runtime output (rendered images, persisted PDFs)
+backend/output/
+
+# Candidate store / local working data (JSON store — Phase 6 replaces with Supabase)
+backend/data/
+
+# Service-account keys — never commit
+*service-account*.json
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+
+# Env / OS
+.env
+.env.*
+.DS_Store

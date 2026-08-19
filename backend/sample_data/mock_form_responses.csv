@@ -1,0 +1,6 @@
+timestamp,name,email,cv_filename,job_id
+2026-08-10 09:14:03,Jane Doe,jane.doe@example.com,sample_cv_text.pdf,backend-engineer
+2026-08-11 15:42:19,John Smith,john.smith@example.com,sample_cv_scanned.pdf,backend-engineer
+2026-08-12 11:07:55,Sam Rivera,sam.rivera@example.com,sample_cv_text_2.pdf,backend-engineer
+2026-08-12 16:31:40,Dana Lee,dana.lee@example.com,sample_cv_text_3.pdf,graphic-designer
+2026-08-13 10:05:12,Miguel Torres,miguel.torres@example.com,sample_cv_text_4.pdf,graphic-designer
