@@ -135,6 +135,15 @@ class Job(BaseModel):
             "to a live form yet (ingestion falls back to local fixtures)."
         ),
     )
+    # Assignment dispatch config (Phase 9). The brief file itself lives on disk
+    # at data/jobs/{id}/assignment_brief.pdf; this holds the original filename.
+    assignment_brief_filename: Optional[str] = None
+    assignment_deadline_days: Optional[int] = Field(
+        None, description="Days until the assignment deadline; None = env default."
+    )
+    assignment_message: Optional[str] = Field(
+        None, description="Optional custom line added to the assignment email body."
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

@@ -20,10 +20,13 @@ from app.email import (
     render_assignment_email,
 )
 from app.main import app
-from app.models import Candidate, CandidateStatus
-from app.store import JSONCandidateStore
+from app.models import Candidate, CandidateStatus, Job, Rubric
+from app.store import JSONCandidateStore, JSONJobRepository
+from tests.helpers import provision_brief
 
 client = TestClient(app)
+
+JOB_ID = "c-job"
 
 
 # --------------------------------------------------------------------------- #
@@ -49,14 +52,19 @@ def test_mock_sender_writes_outbox_file():
     assert data["metadata"]["candidate_id"] == "cand-9"
 
 
-def test_render_assignment_email_has_role_deadline_attachment():
+def test_render_assignment_email_has_role_deadline_attachment(tmp_path):
     cand = Candidate(id="c1", name="Sam", email="sam@example.com", cv_filename="c.pdf", file_hash="h")
     deadline = date(2026, 8, 25)
-    msg = render_assignment_email(cand, "Backend Engineer", deadline)
+    brief = tmp_path / "brief.pdf"
+    brief.write_bytes(b"%PDF-1.4 fake")
+    msg = render_assignment_email(
+        cand, "Backend Engineer", deadline, brief, custom_message="A note from us."
+    )
     assert msg.to == "sam@example.com"
     assert "Backend Engineer" in msg.subject
     assert "Sam" in msg.html_body
     assert "25 August 2026" in msg.html_body
+    assert "A note from us." in msg.html_body  # custom per-job message
     assert [a.filename for a in msg.attachments] == ["assignment_brief.pdf"]
     assert msg.metadata["candidate_id"] == "c1"
 
@@ -111,7 +119,18 @@ def test_resend_send_api_error_is_wrapped_not_raised(monkeypatch):
 def store_path(tmp_path, monkeypatch):
     path = tmp_path / "candidates.json"
     monkeypatch.setenv("CATALIST_CANDIDATE_STORE_PATH", str(path))
+    monkeypatch.setenv("CATALIST_JOB_STORE_PATH", str(tmp_path / "jobs.json"))
     monkeypatch.delenv("EMAIL_MODE", raising=False)  # default mock
+    # A job with an uploaded brief so shortlisted sends can succeed.
+    JSONJobRepository(path=tmp_path / "jobs.json").add(
+        Job(
+            id=JOB_ID,
+            title="Role",
+            job_description="jd",
+            rubric=Rubric(job_title="Role", criteria=[{"name": "c", "weight": 1.0}]),
+        )
+    )
+    provision_brief(JOB_ID)
     return path
 
 
@@ -123,6 +142,7 @@ def _seed(store_path: Path, status: CandidateStatus, cid: str = "c1") -> str:
         email="alice@example.com",
         cv_filename=f"{cid}.pdf",
         file_hash=f"hash-{cid}",
+        job_id=JOB_ID,
         status=status,
     )
     store.upsert(cand, None, None)

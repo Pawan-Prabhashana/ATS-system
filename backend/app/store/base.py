@@ -90,10 +90,11 @@ class CandidateRepository(Protocol):
     def update_decision(
         self, candidate_id: str, decision: str, note: Optional[str]
     ) -> CandidateRecord:
-        """Record a human shortlist/reject decision + note; return the record.
+        """Record a human decision + note; return the record.
 
-        ``decision`` is ``"shortlist"`` or ``"reject"``; anything else is a
-        ``ValueError``. Missing candidate is a ``KeyError``.
+        ``decision`` is ``"shortlist"``, ``"reject"``, or ``"undecided"`` (a
+        clean undo → status ``scored``, note/timestamp cleared); anything else is
+        a ``ValueError``. Missing candidate is a ``KeyError``.
         """
         ...
 

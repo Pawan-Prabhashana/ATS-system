@@ -5,6 +5,7 @@ import re
 from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ValidationError
 
 from app.email.factory import get_email_sender
@@ -25,9 +26,11 @@ from app.pipeline import (
     run_ingestion,
 )
 from app.pipeline.assignment import (
+    BRIEF_FILENAME,
     BulkSendResult,
     SendOutcomeStatus,
     bulk_send_assignments,
+    job_brief_path,
     send_assignment_to_candidate,
 )
 from app.store import CandidateRecord
@@ -80,6 +83,8 @@ class JobUpdateRequest(BaseModel):
     rubric: Optional[dict] = None
     google_sheet_id: Optional[str] = None
     status: Optional[JobStatus] = None
+    assignment_deadline_days: Optional[int] = None
+    assignment_message: Optional[str] = None
 
 
 def _slugify(title: str) -> str:
@@ -153,6 +158,10 @@ def update_job(job_id: str, body: JobUpdateRequest) -> Job:
         updates["google_sheet_id"] = body.google_sheet_id
     if body.status is not None:
         updates["status"] = body.status
+    if body.assignment_deadline_days is not None:
+        updates["assignment_deadline_days"] = body.assignment_deadline_days
+    if body.assignment_message is not None:
+        updates["assignment_message"] = body.assignment_message
     return repo.update(job.model_copy(update=updates))
 
 
@@ -217,6 +226,62 @@ def test_intake(
 
     source = GoogleFormsIntakeSource(sheet_id=sheet_id)
     return IntakeProbeResult(**source.probe())
+
+
+# --------------------------------------------------------------------------- #
+# Per-job assignment brief (Phase 9)
+# --------------------------------------------------------------------------- #
+@router.post("/jobs/{job_id}/assignment-brief", response_model=Job)
+async def upload_assignment_brief(
+    job_id: str, file: UploadFile = File(...)
+) -> Job:
+    """Upload the PDF the candidates will receive. Non-PDF → clean 400."""
+    repo = get_job_repository()
+    job = repo.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
+
+    data = await file.read()
+    if b"%PDF-" not in data[:1024]:
+        raise HTTPException(
+            status_code=400, detail="The assignment brief must be a PDF file."
+        )
+
+    path = job_brief_path(job_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    filename = file.filename or BRIEF_FILENAME
+    return repo.update(job.model_copy(update={"assignment_brief_filename": filename}))
+
+
+@router.get("/jobs/{job_id}/assignment-brief")
+def get_assignment_brief(job_id: str):
+    """Serve the job's brief PDF for preview/confirm. 404 if none uploaded."""
+    job = get_job_repository().get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
+    path = job_brief_path(job_id)
+    if not (job.assignment_brief_filename and path.exists()):
+        raise HTTPException(
+            status_code=404, detail="No assignment brief uploaded for this job."
+        )
+    return FileResponse(
+        str(path),
+        media_type="application/pdf",
+        filename=job.assignment_brief_filename,
+    )
+
+
+@router.delete("/jobs/{job_id}/assignment-brief", response_model=Job)
+def delete_assignment_brief(job_id: str) -> Job:
+    repo = get_job_repository()
+    job = repo.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
+    path = job_brief_path(job_id)
+    if path.exists():
+        path.unlink()
+    return repo.update(job.model_copy(update={"assignment_brief_filename": None}))
 
 
 def _job_or_404(job_id: str) -> Job:
@@ -391,6 +456,7 @@ def send_assignment(
     if outcome.status in (
         SendOutcomeStatus.skipped_not_shortlisted,
         SendOutcomeStatus.skipped_already_sent,
+        SendOutcomeStatus.no_assignment_brief,
     ):
         raise HTTPException(status_code=409, detail=outcome.detail)
     if outcome.status is SendOutcomeStatus.config_error:

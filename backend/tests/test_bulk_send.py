@@ -12,6 +12,7 @@ from app.email import EmailSendResult
 from app.main import app
 from app.models import Candidate, CandidateStatus
 from app.store import JSONCandidateStore, JSONJobRepository, seed_jobs
+from tests.helpers import provision_brief
 
 client = TestClient(app)
 
@@ -25,6 +26,9 @@ def _isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("CATALIST_JOB_STORE_PATH", str(tmp_path / "jobs.json"))
     monkeypatch.delenv("EMAIL_MODE", raising=False)  # default mock
     seed_jobs(JSONJobRepository(path=tmp_path / "jobs.json"))
+    # Both seeded jobs get a brief so shortlisted sends can succeed.
+    provision_brief(BACKEND)
+    provision_brief(DESIGN)
     # Expose the candidate store path for direct seeding.
     return tmp_path / "candidates.json"
 

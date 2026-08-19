@@ -20,10 +20,12 @@ from app.config import get_candidate_store_path
 from app.models import Candidate, CandidateStatus, Evaluation, ParsedCV
 from app.store.base import CandidateRecord
 
-# Maps the reviewer decision to the resulting candidate status.
+# Maps the reviewer decision to the resulting candidate status. "undecided"
+# clears the decision back to the post-scoring state.
 _DECISION_STATUS = {
     "shortlist": CandidateStatus.shortlisted,
     "reject": CandidateStatus.rejected,
+    "undecided": CandidateStatus.scored,
 }
 
 SCHEMA_VERSION = 1
@@ -122,7 +124,8 @@ class JSONCandidateStore:
         status = _DECISION_STATUS.get(decision)
         if status is None:
             raise ValueError(
-                f"Invalid decision {decision!r}; expected 'shortlist' or 'reject'."
+                f"Invalid decision {decision!r}; expected 'shortlist', 'reject', "
+                "or 'undecided'."
             )
         records = self._load()
         record = records.get(candidate_id)
@@ -130,8 +133,13 @@ class JSONCandidateStore:
             raise KeyError(f"No candidate with id {candidate_id!r}")
 
         record.candidate.status = status
-        record.candidate.reviewer_note = note
-        record.candidate.decided_at = datetime.now(timezone.utc)
+        if decision == "undecided":
+            # Clean undo — wipe the decision metadata too.
+            record.candidate.reviewer_note = None
+            record.candidate.decided_at = None
+        else:
+            record.candidate.reviewer_note = note
+            record.candidate.decided_at = datetime.now(timezone.utc)
         self._write(records)
         return record
 

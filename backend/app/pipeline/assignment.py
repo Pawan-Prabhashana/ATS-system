@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from app.config import get_assignment_deadline_days
+from app.config import get_assignment_deadline_days, settings
 from app.email import EmailConfigError, render_assignment_email
 from app.email.factory import get_email_sender
 from app.email.base import EmailSender
@@ -20,12 +21,20 @@ from app.models import CandidateStatus
 from app.store.base import CandidateRepository, JobRepository
 from app.store.factory import get_candidate_store, get_job_repository
 
+BRIEF_FILENAME = "assignment_brief.pdf"
+
+
+def job_brief_path(job_id: str) -> Path:
+    """On-disk path to a job's uploaded assignment brief."""
+    return settings.data_dir / "jobs" / job_id / BRIEF_FILENAME
+
 
 class SendOutcomeStatus(str, Enum):
     sent = "sent"
     skipped_not_shortlisted = "skipped_not_shortlisted"
     skipped_already_sent = "skipped_already_sent"
     skipped_wrong_job = "skipped_wrong_job"
+    no_assignment_brief = "no_assignment_brief"
     not_found = "not_found"
     failed = "failed"
     config_error = "config_error"
@@ -36,6 +45,7 @@ _SKIP = {
     SendOutcomeStatus.skipped_not_shortlisted,
     SendOutcomeStatus.skipped_already_sent,
     SendOutcomeStatus.skipped_wrong_job,
+    SendOutcomeStatus.no_assignment_brief,
 }
 _FAIL = {
     SendOutcomeStatus.failed,
@@ -121,16 +131,39 @@ def send_assignment_to_candidate(
             detail=detail,
         )
 
-    # Build the assignment email. Role comes from the candidate's job.
-    job_title = "the role"
-    if record.candidate.job_id:
-        job_repo = job_repo or get_job_repository()
-        job = job_repo.get(record.candidate.job_id)
-        if job is not None:
-            job_title = job.title
-    deadline = date.today() + timedelta(days=get_assignment_deadline_days())
+    # Resolve the job — its brief, deadline, title, and custom message drive
+    # the email. Sending requires the job to have an uploaded brief.
+    job_repo = job_repo or get_job_repository()
+    job = job_repo.get(record.candidate.job_id) if record.candidate.job_id else None
+
+    brief_path = job_brief_path(record.candidate.job_id) if record.candidate.job_id else None
+    has_brief = bool(
+        job and job.assignment_brief_filename and brief_path and brief_path.exists()
+    )
+    if not has_brief:
+        return SendOutcome(
+            candidate_id=candidate_id,
+            success=False,
+            status=SendOutcomeStatus.no_assignment_brief,
+            detail="Upload an assignment brief for this job before sending.",
+        )
+
+    job_title = job.title if job else "the role"
+    deadline_days = (
+        job.assignment_deadline_days
+        if job and job.assignment_deadline_days is not None
+        else get_assignment_deadline_days()
+    )
+    deadline = date.today() + timedelta(days=deadline_days)
     sent_at = datetime.now(timezone.utc)
-    message = render_assignment_email(record.candidate, job_title, deadline)
+    message = render_assignment_email(
+        record.candidate,
+        job_title,
+        deadline,
+        brief_path,
+        brief_filename=job.assignment_brief_filename or BRIEF_FILENAME,
+        custom_message=job.assignment_message if job else None,
+    )
 
     # Send. Config problems (unset creds) -> config_error; a send failure ->
     # failed, and crucially the status is NOT advanced so the reviewer can retry.
