@@ -85,19 +85,21 @@ def test_jobs_crud_api(api):
     assert client.get("/jobs").json() == []  # empty to start
 
     body = {
-        "id": "data-scientist",
         "title": "Data Scientist",
         "job_description": "Build models.",
         "rubric": _rubric().model_dump(),
     }
     resp = client.post("/jobs", json=body)
     assert resp.status_code == 201
-    assert resp.json()["id"] == "data-scientist"
+    assert resp.json()["id"] == "data-scientist"  # auto-slugged from title
     assert resp.json()["status"] == "open"
 
     assert client.get("/jobs/data-scientist").status_code == 200
     assert client.get("/jobs/missing").status_code == 404
     assert len(client.get("/jobs").json()) == 1
 
-    # Duplicate id -> 409.
-    assert client.post("/jobs", json=body).status_code == 409
+    # Same title again -> a fresh job with a suffixed id (not a 409).
+    resp2 = client.post("/jobs", json=body)
+    assert resp2.status_code == 201
+    assert resp2.json()["id"] == "data-scientist-2"
+    assert len(client.get("/jobs").json()) == 2

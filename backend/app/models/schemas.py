@@ -128,6 +128,13 @@ class Job(BaseModel):
     job_description: str
     rubric: Rubric
     status: JobStatus = JobStatus.open
+    google_sheet_id: Optional[str] = Field(
+        None,
+        description=(
+            "Responses Sheet ID for this job's Google Form. None = not connected "
+            "to a live form yet (ingestion falls back to local fixtures)."
+        ),
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

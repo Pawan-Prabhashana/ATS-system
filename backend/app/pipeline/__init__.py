@@ -3,11 +3,13 @@ from app.pipeline.context import load_default_job_description, load_default_rubr
 from app.pipeline.ingest import (
     IngestionFailure,
     IngestionSummary,
+    build_intake_source_for_job,
     run_ingestion,
 )
 
 __all__ = [
     "run_ingestion",
+    "build_intake_source_for_job",
     "IngestionSummary",
     "IngestionFailure",
     "load_default_rubric",

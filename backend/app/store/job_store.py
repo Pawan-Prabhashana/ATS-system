@@ -43,6 +43,14 @@ class JSONJobRepository:
         self._write(jobs)
         return job
 
+    def update(self, job: Job) -> Job:
+        jobs = self._load()
+        if job.id not in jobs:
+            raise KeyError(f"No job with id {job.id!r}")
+        jobs[job.id] = job
+        self._write(jobs)
+        return job
+
     def get(self, job_id: str) -> Optional[Job]:
         return self._load().get(job_id)
 

@@ -1,10 +1,11 @@
 """FastAPI routes: parsing core (Phase 1) + ingestion/listing/review (Phase 3-4)."""
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.email.factory import get_email_sender
 from app.models import (
@@ -12,12 +13,17 @@ from app.models import (
     CandidateStatus,
     Evaluation,
     Job,
+    JobStatus,
     ParsedCV,
     Recommendation,
     Rubric,
 )
 from app.parsing import parse_cv_bytes
-from app.pipeline import IngestionSummary, run_ingestion
+from app.pipeline import (
+    IngestionSummary,
+    build_intake_source_for_job,
+    run_ingestion,
+)
 from app.pipeline.assignment import (
     BulkSendResult,
     SendOutcomeStatus,
@@ -54,13 +60,51 @@ async def parse(file: UploadFile = File(...)) -> ParsedCV:
 
 
 # --------------------------------------------------------------------------- #
-# Jobs (Phase 5 — multi-job)
+# Jobs (Phase 5 multi-job; Phase 7 config-as-data)
 # --------------------------------------------------------------------------- #
 class JobCreateRequest(BaseModel):
-    id: str
+    """Create a job. ``id`` is auto-generated as a slug from ``title``."""
+
     title: str
     job_description: str
-    rubric: Rubric
+    rubric: dict  # validated -> clean 400 (see _validated_rubric)
+    google_sheet_id: Optional[str] = None
+    status: Optional[JobStatus] = None
+
+
+class JobUpdateRequest(BaseModel):
+    """PATCH a job — every field optional; only provided fields change."""
+
+    title: Optional[str] = None
+    job_description: Optional[str] = None
+    rubric: Optional[dict] = None
+    google_sheet_id: Optional[str] = None
+    status: Optional[JobStatus] = None
+
+
+def _slugify(title: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    return slug or "job"
+
+
+def _unique_job_id(repo, base: str) -> str:
+    if repo.get(base) is None:
+        return base
+    n = 2
+    while repo.get(f"{base}-{n}") is not None:
+        n += 1
+    return f"{base}-{n}"
+
+
+def _validated_rubric(raw: dict) -> Rubric:
+    """Validate a rubric payload; a bad one is a clean 400, not a 422/500."""
+    try:
+        return Rubric.model_validate(raw)
+    except ValidationError as exc:
+        msgs = "; ".join(
+            f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors()
+        )
+        raise HTTPException(status_code=400, detail=f"Invalid rubric: {msgs}") from exc
 
 
 @router.get("/jobs", response_model=list[Job])
@@ -71,16 +115,16 @@ def list_jobs() -> list[Job]:
 @router.post("/jobs", response_model=Job, status_code=201)
 def create_job(body: JobCreateRequest) -> Job:
     repo = get_job_repository()
+    rubric = _validated_rubric(body.rubric)
     job = Job(
-        id=body.id,
+        id=_unique_job_id(repo, _slugify(body.title)),
         title=body.title,
         job_description=body.job_description,
-        rubric=body.rubric,
+        rubric=rubric,
+        google_sheet_id=body.google_sheet_id,
+        status=body.status or JobStatus.open,
     )
-    try:
-        return repo.add(job)
-    except ValueError as exc:  # duplicate id
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return repo.add(job)
 
 
 @router.get("/jobs/{job_id}", response_model=Job)
@@ -91,14 +135,48 @@ def get_job(job_id: str) -> Job:
     return job
 
 
+@router.patch("/jobs/{job_id}", response_model=Job)
+def update_job(job_id: str, body: JobUpdateRequest) -> Job:
+    repo = get_job_repository()
+    job = repo.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
+
+    updates: dict = {}
+    if body.title is not None:
+        updates["title"] = body.title
+    if body.job_description is not None:
+        updates["job_description"] = body.job_description
+    if body.rubric is not None:
+        updates["rubric"] = _validated_rubric(body.rubric)
+    if body.google_sheet_id is not None:
+        updates["google_sheet_id"] = body.google_sheet_id
+    if body.status is not None:
+        updates["status"] = body.status
+    return repo.update(job.model_copy(update=updates))
+
+
+@router.post("/jobs/{job_id}/close", response_model=Job)
+def close_job(job_id: str) -> Job:
+    """Soft-close a job (status=closed) — preserves candidate integrity."""
+    repo = get_job_repository()
+    job = repo.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
+    return repo.update(job.model_copy(update={"status": JobStatus.closed}))
+
+
 @router.post("/jobs/{job_id}/ingest", response_model=IngestionSummary)
 def ingest_job(job_id: str) -> IngestionSummary:
-    """Run ingestion scoped to a single job: its JD + rubric, its submissions,
-    and tag the resulting candidates with ``job_id``."""
+    """Run ingestion scoped to a single job, selecting the intake source FROM
+    THE JOB (its Google Sheet if connected, else local fixtures)."""
     job = get_job_repository().get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
-    return run_ingestion(job.job_description, job.rubric, job_id=job_id)
+    source = build_intake_source_for_job(job)
+    return run_ingestion(
+        job.job_description, job.rubric, job_id=job_id, intake_source=source
+    )
 
 
 def _job_or_404(job_id: str) -> Job:

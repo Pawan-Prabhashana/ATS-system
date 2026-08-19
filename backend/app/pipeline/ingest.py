@@ -1,6 +1,7 @@
 """Ingestion pipeline: intake -> parse -> dedup -> evaluate -> store."""
 from __future__ import annotations
 
+import hashlib
 import shutil
 import tempfile
 from pathlib import Path
@@ -13,7 +14,8 @@ from app.evaluation import get_evaluator
 from app.evaluation.base import Evaluator
 from app.intake.base import IntakeSource, RawSubmission
 from app.intake.factory import get_intake_source
-from app.models import CandidateStatus, ParsedCV, Rubric
+from app.intake.local_fixture import LocalFixtureIntakeSource
+from app.models import CandidateStatus, Job, ParsedCV, Rubric
 from app.parsing import parse_cv_file
 from app.store.base import CandidateRepository
 from app.store.factory import get_candidate_store
@@ -21,6 +23,27 @@ from app.store.factory import get_candidate_store
 # Stable per-candidate artifact layout (served at /media/candidates/<id>/...).
 CANDIDATES_SUBDIR = "candidates"
 STORED_CV_NAME = "cv.pdf"
+
+
+def _scoped_candidate_id(job_id: str, file_hash: str) -> str:
+    """Per-(job, CV) candidate id, so the same CV can exist under two jobs
+    without colliding in the store (which keys on candidate id)."""
+    return hashlib.sha256(f"{job_id}\x00{file_hash}".encode()).hexdigest()[:16]
+
+
+def build_intake_source_for_job(job: Job) -> IntakeSource:
+    """Pick the intake source FROM THE JOB, not the global env.
+
+    A job with a ``google_sheet_id`` reads that job's Google Form responses
+    Sheet; otherwise it uses the offline local fixtures filtered to this job.
+    The Google source is only *constructed* here — no network/credentials are
+    touched until ``fetch_new_submissions`` runs.
+    """
+    if job.google_sheet_id:
+        from app.intake.google_forms import GoogleFormsIntakeSource
+
+        return GoogleFormsIntakeSource(sheet_id=job.google_sheet_id)
+    return LocalFixtureIntakeSource()
 
 
 class IngestionFailure(BaseModel):
@@ -123,27 +146,34 @@ def _process_one(
     #    candidates, so we don't do disk work for dedup-skipped ones.
     candidate, parsed_cv = parse_cv_file(cv_path, output_root=work_dir)
 
-    # 3. Dedup by file hash — repeated ingestion runs stay cheap and safe.
-    existing = store.get_by_file_hash(candidate.file_hash)
+    effective_job = job_id or submission.job_id or ""
+    file_hash = candidate.file_hash
+    scoped_id = _scoped_candidate_id(effective_job, file_hash)
+
+    # 3. Dedup by (job_id, file_hash) — a CV can apply to two openings, but
+    #    re-running one job still skips its own duplicates.
+    existing = store.get_by_job_and_hash(effective_job, file_hash)
     if existing is not None:
         summary.skipped += 1
         summary.skipped_candidate_ids.append(existing.id)
         return
 
-    # 4. Persist CV + page images to a stable per-candidate dir.
+    # 4. Persist CV + page images under the scoped id.
     artifact_dir, cv_file, page_files = _persist_artifacts(
-        candidate.id, cv_path, parsed_cv
+        scoped_id, cv_path, parsed_cv
     )
 
-    # 5. Attach submission identity + job scoping to the candidate.
+    # 5. Attach identity + job scoping; adopt the scoped id everywhere.
     candidate = candidate.model_copy(
         update={
+            "id": scoped_id,
             "name": submission.name,
             "email": submission.email,
-            "job_id": job_id or submission.job_id or "",
+            "job_id": effective_job,
             "status": CandidateStatus.parsed,
         }
     )
+    parsed_cv = parsed_cv.model_copy(update={"candidate_id": scoped_id})
 
     # 6. Evaluate, mark scored, persist the record.
     evaluation = evaluator.evaluate(parsed_cv, job_description, rubric)

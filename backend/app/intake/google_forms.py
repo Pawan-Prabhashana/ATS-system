@@ -44,8 +44,17 @@ class GoogleFormsIntakeSource:
 
     name = "google_forms"
 
-    def __init__(self, sheet_range: str = DEFAULT_RANGE) -> None:
-        # No credentials touched here — construction is always safe.
+    def __init__(
+        self,
+        sheet_id: str | None = None,
+        service_account_file: str | None = None,
+        sheet_range: str = DEFAULT_RANGE,
+    ) -> None:
+        # No credentials touched here — construction is always safe. When set,
+        # sheet_id / service_account_file OVERRIDE the global env vars (they are
+        # wired into fetch/probe in Phase 7B).
+        self.sheet_id = sheet_id
+        self.service_account_file = service_account_file
         self.sheet_range = sheet_range
 
     # -- public API -------------------------------------------------------- #

@@ -47,9 +47,14 @@ class JSONCandidateStore:
             records[record.candidate.id] = record
         return records
 
-    def get_by_file_hash(self, file_hash: str) -> Optional[Candidate]:
+    def get_by_job_and_hash(
+        self, job_id: str, file_hash: str
+    ) -> Optional[Candidate]:
         for record in self._load().values():
-            if record.candidate.file_hash == file_hash:
+            if (
+                record.candidate.job_id == job_id
+                and record.candidate.file_hash == file_hash
+            ):
                 return record.candidate
         return None
 

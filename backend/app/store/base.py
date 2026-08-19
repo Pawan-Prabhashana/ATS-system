@@ -42,8 +42,14 @@ class CandidateRecord(BaseModel):
 class CandidateRepository(Protocol):
     """Persistence for candidates + their evaluations."""
 
-    def get_by_file_hash(self, file_hash: str) -> Optional[Candidate]:
-        """Return the stored candidate with this file hash, or None (for dedup)."""
+    def get_by_job_and_hash(
+        self, job_id: str, file_hash: str
+    ) -> Optional[Candidate]:
+        """Return the stored candidate for this ``(job_id, file_hash)``, or None.
+
+        Dedup is scoped per job: the same CV can apply to two openings, but
+        re-running one job still skips its own duplicates.
+        """
         ...
 
     def upsert(
@@ -114,6 +120,11 @@ class JobRepository(Protocol):
     def add(self, job: Job) -> Job:
         """Insert (or replace) a job; return it. Raises ``ValueError`` on a
         duplicate id when the caller expects a fresh create."""
+        ...
+
+    def update(self, job: Job) -> Job:
+        """Replace an existing job by id; return it. Raises ``KeyError`` if the
+        id is not present."""
         ...
 
     def get(self, job_id: str) -> Optional[Job]:

@@ -29,13 +29,15 @@ def store(tmp_path):
     return JSONCandidateStore(path=tmp_path / "candidates.json")
 
 
-def test_upsert_and_get_by_file_hash(store):
-    c = _candidate("id1", "hashAAA", "Alice")
+def test_upsert_and_get_by_job_and_hash(store):
+    c = _candidate("id1", "hashAAA", "Alice")  # job_id defaults to ""
     store.upsert(c, None, _evaluation("id1", 70))
 
-    found = store.get_by_file_hash("hashAAA")
+    found = store.get_by_job_and_hash("", "hashAAA")
     assert found is not None and found.id == "id1"
-    assert store.get_by_file_hash("nope") is None
+    assert store.get_by_job_and_hash("", "nope") is None
+    # Same hash under a different job is not a match (per-job scoping).
+    assert store.get_by_job_and_hash("other-job", "hashAAA") is None
 
 
 def test_upsert_replaces_same_id(store):
