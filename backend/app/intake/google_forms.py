@@ -61,15 +61,14 @@ class GoogleFormsIntakeSource:
     def fetch_new_submissions(
         self, job_id: str | None = None
     ) -> list[RawSubmission]:
-        # ``job_id`` is accepted for interface parity and is forward-looking:
-        # real multi-form/multi-sheet mapping (one Google Form per job) is a
-        # later concern once a second real form exists. For now every submission
-        # from the configured sheet is tagged with the requested job_id.
-        sheet_id = get_google_sheet_id()
+        # One Google Form per opening: this source reads the job's OWN responses
+        # sheet (``self.sheet_id``), so its rows belong to ``job_id``. Falls back
+        # to the global env only when the instance sheet_id is unset.
+        sheet_id = self.sheet_id or get_google_sheet_id()
         if not sheet_id:
             raise IntakeConfigError(
-                "GOOGLE_SHEET_ID is not set. Set it to the form-responses "
-                "spreadsheet id to use the Google intake source."
+                "No Google Sheet configured. Set the job's google_sheet_id (or "
+                "the GOOGLE_SHEET_ID env var) to the form-responses spreadsheet id."
             )
         sheets, _drive = self._build_clients()
 
@@ -109,6 +108,55 @@ class GoogleFormsIntakeSource:
             )
         return submissions
 
+    def probe(self) -> dict:
+        """Test the connection to the job's Sheet without ingesting.
+
+        Returns ``{connected, row_count, detected_columns, error}``. NEVER
+        raises — any Google/credentials/library problem comes back as
+        ``connected: False`` with a human-readable ``error``.
+        """
+        empty_cols = {"name": None, "email": None, "cv": None, "timestamp": None}
+        sheet_id = self.sheet_id or get_google_sheet_id()
+        if not sheet_id:
+            return {
+                "connected": False,
+                "row_count": 0,
+                "detected_columns": empty_cols,
+                "error": "No Google Sheet configured for this job.",
+            }
+        try:
+            sheets, _drive = self._build_clients()
+            resp = (
+                sheets.spreadsheets()
+                .values()
+                .get(spreadsheetId=sheet_id, range=self.sheet_range)
+                .execute()
+            )
+        except Exception as exc:  # noqa: BLE001 - report, never raise to a 500
+            return {
+                "connected": False,
+                "row_count": 0,
+                "detected_columns": empty_cols,
+                "error": str(exc),
+            }
+
+        rows = resp.get("values", [])
+        if not rows:
+            return {
+                "connected": True,
+                "row_count": 0,
+                "detected_columns": empty_cols,
+                "error": None,
+            }
+        header = rows[0]
+        cols = _resolve_columns(header)
+        return {
+            "connected": True,
+            "row_count": len(rows) - 1,
+            "detected_columns": {k: cols.get(k) for k in empty_cols},
+            "error": None,
+        }
+
     def download_cv(self, submission: RawSubmission, dest_dir: Path) -> Path:
         _sheets, drive = self._build_clients()
         dest_dir = Path(dest_dir)
@@ -142,7 +190,7 @@ class GoogleFormsIntakeSource:
 
         All imports are local so the module imports without the Google libs.
         """
-        sa_file = get_google_service_account_file()
+        sa_file = self.service_account_file or get_google_service_account_file()
         if not sa_file:
             raise IntakeConfigError(
                 "GOOGLE_SERVICE_ACCOUNT_FILE is not set. Point it at your "

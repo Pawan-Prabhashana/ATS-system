@@ -179,6 +179,36 @@ def ingest_job(job_id: str) -> IngestionSummary:
     )
 
 
+class IntakeProbeResult(BaseModel):
+    connected: bool
+    row_count: int = 0
+    detected_columns: dict[str, Optional[str]] = {}
+    error: Optional[str] = None
+
+
+@router.post("/jobs/{job_id}/test-intake", response_model=IntakeProbeResult)
+def test_intake(job_id: str) -> IntakeProbeResult:
+    """Operability check: try to read the job's Google Sheet header + row count.
+
+    Never raises to a 500 — any Google/credentials error is reported as
+    ``connected: false`` with a human-readable ``error``.
+    """
+    job = get_job_repository().get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
+
+    if not job.google_sheet_id:
+        return IntakeProbeResult(
+            connected=False,
+            error="No Google Sheet connected for this job.",
+        )
+
+    from app.intake.google_forms import GoogleFormsIntakeSource
+
+    source = GoogleFormsIntakeSource(sheet_id=job.google_sheet_id)
+    return IntakeProbeResult(**source.probe())
+
+
 def _job_or_404(job_id: str) -> Job:
     job = get_job_repository().get(job_id)
     if job is None:

@@ -379,9 +379,12 @@ clean **400** with a message (no stack trace). Interactive docs at
 | `GET` | `/health` | Liveness check |
 | `POST` | `/parse` | Parse an uploaded PDF → `ParsedCV` |
 | `GET` | `/jobs` | List jobs |
-| `POST` | `/jobs` | Create a job → 201; 409 on duplicate id |
+| `POST` | `/jobs` | Create a job (`id` auto-slugged from title) → 201; invalid rubric → 400 |
 | `GET` | `/jobs/{id}` | Job detail; 404 if missing |
-| `POST` | `/jobs/{id}/ingest` | Ingest that job's submissions → `IngestionSummary`; 404 if missing |
+| `PATCH` | `/jobs/{id}` | Update title/JD/rubric/google_sheet_id/status; 404, invalid rubric → 400 |
+| `POST` | `/jobs/{id}/close` | Soft-close (status=closed); 404 |
+| `POST` | `/jobs/{id}/test-intake` | Test the job's Google Sheet connection → `{connected,row_count,detected_columns,error?}`; never 500 |
+| `POST` | `/jobs/{id}/ingest` | Ingest the job's submissions (intake chosen FROM THE JOB) → `IngestionSummary`; 404 |
 | `GET` | `/jobs/{id}/candidates?tier=&status=` | Job's candidates, filtered + ranked; 404 if missing |
 | `GET` | `/jobs/{id}/summary` | Counts by tier + by status for the job; 404 if missing |
 | `GET` | `/candidates` | List all stored candidates (across jobs), ranked by score |
@@ -432,8 +435,8 @@ Environment variables (see `app/config.py`):
 | `CATALIST_EVAL_TIMEOUT` | `60` | Per-request timeout (seconds) |
 | `CATALIST_EVAL_MAX_ATTEMPTS` | `2` | Network attempts on timeout / 5xx |
 | `INTAKE_MODE` | `local` | `local` (CSV fixtures) or `google` (Sheets + Drive) |
-| `GOOGLE_SHEET_ID` | _(unset)_ | Form-responses spreadsheet id (google mode) |
-| `GOOGLE_SERVICE_ACCOUNT_FILE` | _(unset)_ | Path to service-account JSON key (google mode) |
+| `GOOGLE_SHEET_ID` | _(unset)_ | Fallback responses-Sheet id (a job's `google_sheet_id` overrides it) |
+| `GOOGLE_SERVICE_ACCOUNT_FILE` | _(unset)_ | Path to service-account JSON key (Sheets/Drive access) |
 | `CATALIST_CANDIDATE_STORE_PATH` | `backend/data/candidates.json` | JSON candidate store location |
 | `CATALIST_JOB_STORE_PATH` | `backend/data/jobs.json` | JSON job store location |
 | `CATALIST_DATA_DIR` | `backend/data` | Local working-data directory |
@@ -580,74 +583,77 @@ sample fixtures use a distinct CV per candidate. The candidate + job stores are
 single JSON files (`backend/data/candidates.json`, `backend/data/jobs.json`) —
 deliberate placeholders for the Phase 6 Supabase store.
 
-### Reset candidate data
+### Reset dev data
 
-Phase 5 added `job_id` to `Candidate`. This is pre-production dev data with **no
-migration** — old records in `data/candidates.json` predate `job_id`. When this
-change lands, reset the candidate store:
+This is pre-production dev data with **no migration**. Model shape has changed
+across phases (`Candidate.job_id`; `Job.google_sheet_id` + candidate ids are now
+`(job, CV)`-scoped). When these land, **delete and re-seed** both stores:
 
 ```bash
-rm -f backend/data/candidates.json
+rm -f  backend/data/candidates.json backend/data/jobs.json
 rm -rf backend/data/candidates/          # stale per-candidate artifacts
 ```
 
-Re-seed jobs and re-ingest per job to repopulate. (Jobs in `data/jobs.json` are
-unaffected.)
+Restart the backend (jobs auto-seed) and re-ingest per job to repopulate.
 
 ---
 
-## Google intake / going live
+## Connecting a job to a Google Form
 
-The default `INTAKE_MODE=local` reads a CSV fixture and needs nothing. To ingest
-real Google Form responses, switch to `INTAKE_MODE=google`. Candidates apply via
-a Google Form with a **file-upload** question for the CV; responses (and the
-uploaded Drive files) land in the linked responses Sheet.
+**Architecture: one Google Form per role.** Each form's responses Sheet ID is
+stored on its Job (`google_sheet_id`). Ingesting a job reads **that job's** Sheet
+— that is how the system knows which submission belongs to which opening. A job
+with no `google_sheet_id` falls back to the offline local fixtures.
 
-1. **Create a Google Cloud project** and enable the **Google Sheets API** and
-   **Google Drive API** (APIs & Services → Library).
-2. **Create a service account** (IAM & Admin → Service Accounts), then add a
-   **JSON key** (Keys → Add key → JSON) and download it. Note the service
-   account's email, `...@....iam.gserviceaccount.com`.
-3. **Share access with the service account** (it acts as its own identity, not
-   you):
-   - Open the **form-responses Sheet** → Share → add the service-account email
-     as **Viewer**.
-   - The CV uploads live in a **Drive folder** owned by the form owner. Share
-     that folder (or the files) with the service-account email as **Viewer** so
-     it can download them.
-4. **Set the environment** (backend, venv activated) and install the Google
-   client libraries (they're in `requirements.txt` but only needed for this
-   mode):
+### For the recruiter — connecting a role
 
-   ```bash
-   pip install google-api-python-client google-auth
-   export INTAKE_MODE=google
-   export GOOGLE_SHEET_ID=<the spreadsheet id from its URL>
-   export GOOGLE_SERVICE_ACCOUNT_FILE=/absolute/path/to/service-account.json
-   ```
-5. **Run** — the CLI/API pick up the Google source with no code change:
+1. **Make one Google Form per role.** Add a **File upload** question for the CV.
+   (Google requires respondents to be signed in for file uploads.)
+2. **Link it to a responses Sheet** (Form → Responses → *Link to Sheets*). Open
+   that Sheet and copy its **ID** from the URL:
+   `https://docs.google.com/spreadsheets/d/`**`<THIS_IS_THE_ID>`**`/edit`.
+3. **Put the Sheet ID on the job** — `POST /jobs` with `google_sheet_id`, or
+   `PATCH /jobs/{id}` `{ "google_sheet_id": "<id>" }`.
+4. **Share access with the service account** (it acts as its own identity):
+   - Share the **responses Sheet** with the service-account email
+     (`…@….iam.gserviceaccount.com`) as **Viewer**.
+   - ⚠️ **The gotcha:** the uploaded CVs live in a **Drive folder owned by the
+     form owner**, and are **invisible to the service account until you share
+     them**. Share that *Form File Uploads* Drive folder with the
+     service-account email as **Viewer** too, or downloads will fail even though
+     the Sheet reads fine.
+5. **Verify the connection** — `POST /jobs/{id}/test-intake`. It reads the
+   Sheet's header + row count and returns
+   `{connected, row_count, detected_columns, error?}`. A misconfiguration (Sheet
+   not shared, folder not shared, bad id, libraries missing) comes back as
+   `connected:false` with a readable `error` — **never a 500**.
 
-   ```bash
-   python -m app.cli ingest <job_id>
-   ```
+### For the operator — one-time setup
 
-Multi-job note: `GoogleFormsIntakeSource.fetch_new_submissions(job_id=…)` accepts
-a `job_id` for interface parity and tags every returned submission with it, but
-does not yet map one Google Form/Sheet per job — real per-form configuration is
-**forward-looking** (a later concern once a second real form exists). Today all
-rows from the single configured sheet are ingested under whichever job you run.
+Enable the **Google Sheets API** and **Google Drive API** in a Google Cloud
+project, create a **service account** with a **JSON key**, install the client
+libraries (`pip install google-api-python-client google-auth`), and point the
+backend at the key:
 
-**How it fails, on purpose:** a missing `GOOGLE_SHEET_ID` /
-`GOOGLE_SERVICE_ACCOUNT_FILE`, an unreadable key file, or the Google libraries
-not being installed raise `IntakeConfigError` — but only when a method actually
-runs. Importing the module and constructing `GoogleFormsIntakeSource()` never
-require any of them, which is why the test suite covers this source with **no
-credentials and the libraries absent**.
+```bash
+export GOOGLE_SERVICE_ACCOUNT_FILE=/absolute/path/to/service-account.json
+```
 
-The response Sheet's columns are matched by header name (case-insensitive):
-name, email, and the CV column (any of *cv / resume / résumé / upload / file*),
-whose cell may be a Drive URL (`.../open?id=…` or `.../file/d/…/view`) or a bare
-file id.
+Required scopes are **read-only**: `spreadsheets.readonly` + `drive.readonly`.
+`GOOGLE_SHEET_ID` / `GOOGLE_SERVICE_ACCOUNT_FILE` remain as **fallbacks** — a
+job's own `google_sheet_id` (and an optional per-source `service_account_file`)
+override them.
+
+**Column detection:** the Sheet's columns are matched by header name
+(case-insensitive): name, email, and the CV column (any of *cv / resume / résumé
+/ upload / file*), whose cell may be a Drive URL (`.../open?id=…` or
+`.../file/d/…/view`) or a bare file id.
+
+**Fails safe:** a missing sheet id / key, an unreadable key file, or the Google
+libraries not being installed surface as `IntakeConfigError` (on use) or a
+`connected:false` probe result — never at import. Constructing
+`GoogleFormsIntakeSource()` needs nothing, so the test suite covers this source
+with **no credentials and the libraries absent**.
 
 ---
 
