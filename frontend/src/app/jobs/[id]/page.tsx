@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   bulkSendAssignments,
   getJob,
@@ -13,7 +14,13 @@ import {
   type JobSummary,
   type Recommendation,
 } from "@/lib/api";
-import { StatusBadge, TierChip, TierBar, TIER_META } from "@/components/badges";
+import {
+  DECISION_META,
+  TierBar,
+  TierChip,
+  TIER_META,
+  VerdictTrack,
+} from "@/components/verdict";
 import { Button, Card, Checkbox, Label, Spinner } from "@/components/ui";
 import { SlideOver } from "@/components/SlideOver";
 import { CandidateDetail } from "@/components/CandidateDetail";
@@ -30,11 +37,7 @@ const TABS: { key: Tab; label: string }[] = [
 const scoreOf = (r: CandidateRecord) => r.evaluation?.overall_score ?? -1;
 const byScore = (a: CandidateRecord, b: CandidateRecord) => scoreOf(b) - scoreOf(a);
 
-export default function JobPipeline({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function JobPipeline({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
 
   const [job, setJob] = useState<Job | null>(null);
@@ -53,8 +56,6 @@ export default function JobPipeline({
   const [ingesting, setIngesting] = useState(false);
 
   const loadCandidates = useCallback(async () => {
-    // One fetch; tabs are derived client-side so counts and content stay
-    // consistent (the shortlist tab is a union — see below).
     const rows = await listJobCandidates(id);
     setAll(rows);
     return rows;
@@ -65,7 +66,7 @@ export default function JobPipeline({
       const [, s] = await Promise.all([loadCandidates(), getJobSummary(id)]);
       setSummary(s);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to refresh.");
+      setError(e instanceof Error ? e.message : "Couldn't refresh.");
     }
   }, [id, loadCandidates]);
 
@@ -78,62 +79,41 @@ export default function JobPipeline({
         setSummary(s);
         await loadCandidates();
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load job.");
+        setError(e instanceof Error ? e.message : "Couldn't load this job.");
         setAll([]);
       }
     })();
   }, [id, loadCandidates]);
 
-  // Derived tab lists.
   const lists = useMemo(() => {
     const rows = all ?? [];
-    const tier = (t: Recommendation) =>
-      rows.filter((r) => r.evaluation?.recommendation === t).sort(byScore);
-    // Shortlist tab = AI-shortlist UNION anyone the human shortlisted (so an
-    // AI-reject you override to shortlist shows up here for sending).
+    const tier = (t: Recommendation) => rows.filter((r) => r.evaluation?.recommendation === t).sort(byScore);
+    // Shortlist tab = AI-shortlist ∪ anyone the human shortlisted (so an
+    // AI-reject you override to shortlist is still sendable here).
     const shortlist = rows
-      .filter(
-        (r) =>
-          r.evaluation?.recommendation === "shortlist" ||
-          r.candidate.status === "shortlisted",
-      )
+      .filter((r) => r.evaluation?.recommendation === "shortlist" || r.candidate.status === "shortlisted")
       .sort(byScore);
-    return {
-      shortlist,
-      borderline: tier("borderline"),
-      reject: tier("reject"),
-      all: [...rows].sort(byScore),
-    };
+    return { shortlist, borderline: tier("borderline"), reject: tier("reject"), all: [...rows].sort(byScore) };
   }, [all]);
 
   const rows = lists[tab];
 
-  // Default the selection to human-shortlisted candidates whenever the
-  // shortlist tab's contents change.
   useEffect(() => {
     if (tab !== "shortlist") return;
-    setSelected(
-      new Set(
-        lists.shortlist
-          .filter((r) => r.candidate.status === "shortlisted")
-          .map((r) => r.candidate.id),
-      ),
-    );
+    setSelected(new Set(lists.shortlist.filter((r) => r.candidate.status === "shortlisted").map((r) => r.candidate.id)));
   }, [tab, lists.shortlist]);
 
-  function toggle(id_: string) {
+  function toggle(cid: string) {
     setSelected((s) => {
       const n = new Set(s);
-      if (n.has(id_)) n.delete(id_);
-      else n.add(id_);
+      if (n.has(cid)) n.delete(cid);
+      else n.add(cid);
       return n;
     });
   }
-
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.candidate.id));
   function toggleAll() {
-    if (allSelected) setSelected(new Set());
-    else setSelected(new Set(rows.map((r) => r.candidate.id)));
+    setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.candidate.id)));
   }
 
   async function onBulkSend() {
@@ -164,26 +144,20 @@ export default function JobPipeline({
     }
   }
 
-  const tabCount = (t: Tab) => lists[t].length;
+  const connected = Boolean(job?.google_sheet_id);
 
   return (
-    <main className="mx-auto max-w-7xl px-6 py-8">
-      <a href="/" className="text-sm text-link hover:underline">
-        ← Jobs
-      </a>
-
+    <div className="mx-auto max-w-6xl px-6 py-8">
       {/* Header */}
-      <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {job?.title ?? "…"}
-            </h1>
+            <h1 className="font-display text-2xl font-medium tracking-tight">{job?.title ?? "…"}</h1>
             {job && (
               <span
                 className="rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize"
                 style={{
-                  color: job.status === "open" ? "var(--tier-shortlist)" : "var(--muted)",
+                  color: job.status === "open" ? "var(--accent-ink)" : "var(--muted)",
                   borderColor: "var(--line-2)",
                 }}
               >
@@ -191,17 +165,28 @@ export default function JobPipeline({
               </span>
             )}
           </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs">
+            <span
+              className="inline-flex items-center gap-1.5"
+              style={{ color: connected ? "var(--tier-shortlist)" : "var(--muted)" }}
+            >
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ background: connected ? "var(--tier-shortlist)" : "var(--faint)" }}
+              />
+              {connected ? "Connected to a form" : "Not connected"}
+            </span>
+            <Link href={`/jobs/${id}/settings`} className="text-[var(--accent-ink)] hover:underline">
+              Settings
+            </Link>
+          </div>
           {job && (
             <div className="mt-2 max-w-2xl">
-              <button
-                onClick={() => setJdOpen((v) => !v)}
-                className="text-sm text-ink-2 hover:text-ink"
-              >
-                {jdOpen ? "Hide" : "Job description"}{" "}
-                <span className="text-muted">{jdOpen ? "▲" : "▼"}</span>
+              <button onClick={() => setJdOpen((v) => !v)} className="text-sm text-muted hover:text-ink">
+                {jdOpen ? "Hide description" : "Job description"} <span className="text-faint">{jdOpen ? "▲" : "▼"}</span>
               </button>
               {jdOpen && (
-                <p className="mt-2 whitespace-pre-line rounded-lg border border-line bg-surface p-4 text-sm leading-relaxed text-ink-2">
+                <p className="mt-2 whitespace-pre-line rounded-xl border border-line bg-surface p-4 text-sm leading-relaxed text-muted">
                   {job.job_description}
                 </p>
               )}
@@ -221,13 +206,7 @@ export default function JobPipeline({
               <Stat label="Sent" value={summary.by_status.assignment_sent} />
             </div>
             <div className="mt-3 border-t border-line pt-3">
-              <Button
-                size="sm"
-                variant="secondary"
-                loading={ingesting}
-                onClick={onIngest}
-                className="w-full"
-              >
+              <Button size="sm" variant="secondary" loading={ingesting} onClick={onIngest} className="w-full">
                 Run ingestion
               </Button>
             </div>
@@ -245,7 +224,7 @@ export default function JobPipeline({
       )}
 
       {/* Tabs */}
-      <div className="mt-6 flex items-center gap-1 border-b border-line">
+      <div className="mt-6 flex items-center gap-1 overflow-x-auto border-b border-line">
         {TABS.map((t) => {
           const active = tab === t.key;
           return (
@@ -255,65 +234,49 @@ export default function JobPipeline({
                 setTab(t.key);
                 setBulkResult(null);
               }}
-              className={`relative -mb-px flex items-center gap-2 px-3.5 py-2.5 text-sm font-medium transition-colors ${
-                active ? "text-ink" : "text-muted hover:text-ink-2"
+              className={`relative -mb-px flex items-center gap-2 whitespace-nowrap px-3.5 py-2.5 text-sm font-medium transition-colors ${
+                active ? "text-ink" : "text-muted hover:text-ink"
               }`}
             >
               {t.key !== "all" && (
-                <span
-                  className="inline-block h-1.5 w-1.5 rounded-full"
-                  style={{ background: TIER_META[t.key as Recommendation].dot }}
-                />
+                <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: TIER_META[t.key as Recommendation].color }} />
               )}
               {t.label}
-              <span
-                className={`font-mono text-xs tabular-nums ${active ? "text-ink-2" : "text-muted"}`}
-              >
-                {all === null ? "" : tabCount(t.key)}
+              <span className={`font-mono text-xs tabular-nums ${active ? "text-muted" : "text-faint"}`}>
+                {all === null ? "" : lists[t.key].length}
               </span>
-              {active && (
-                <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-ink" />
-              )}
+              {active && <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-ink" />}
             </button>
           );
         })}
       </div>
 
-      {/* Shortlist tab: bulk send bar */}
+      {/* Shortlist bulk bar */}
       {tab === "shortlist" && (
         <div className="mt-4">
-          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3">
             <div className="text-sm">
-              <span className="font-semibold">{selected.size}</span>
-              <span className="text-ink-2"> selected</span>
+              <span className="font-mono font-semibold">{selected.size}</span>
+              <span className="text-muted"> selected</span>
             </div>
-            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-ink-2">
-              <Checkbox checked={force} onChange={setForce} aria-label="Force resend" />
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted">
+              <Checkbox checked={force} onChange={setForce} aria-label="Resend already-sent" />
               Resend already-sent
             </label>
-            <div className="ml-auto flex items-center gap-2">
-              <Button
-                size="sm"
-                loading={sending}
-                disabled={selected.size === 0}
-                onClick={onBulkSend}
-              >
-                Send to Selected ({selected.size})
+            <div className="ml-auto">
+              <Button size="sm" loading={sending} disabled={selected.size === 0} onClick={onBulkSend}>
+                Send assignment to selected ({selected.size})
               </Button>
             </div>
           </div>
-          <p className="mt-1.5 px-1 text-xs text-muted">
-            AI-recommended shortlist plus anyone you&apos;ve shortlisted. Defaults to
-            everyone you shortlisted; deselect to skip.
+          <p className="mt-1.5 px-1 text-xs text-faint">
+            Everyone the AI shortlisted, plus anyone you shortlisted. Defaults to your shortlist — deselect to skip.
           </p>
-
-          {bulkResult && (
-            <BulkResultPanel result={bulkResult} onDismiss={() => setBulkResult(null)} />
-          )}
+          {bulkResult && <BulkResultPanel result={bulkResult} onDismiss={() => setBulkResult(null)} />}
         </div>
       )}
 
-      {/* Candidate list */}
+      {/* List */}
       <div className="mt-4">
         {all === null ? (
           <div className="flex items-center gap-2 py-16 text-muted">
@@ -321,10 +284,8 @@ export default function JobPipeline({
           </div>
         ) : (all?.length ?? 0) === 0 ? (
           <Card className="px-6 py-14 text-center">
-            <p className="text-sm text-ink-2">No candidates yet for this job.</p>
-            <p className="mt-1 text-xs text-muted">
-              Run ingestion to pull and score applicants.
-            </p>
+            <h2 className="font-display text-base font-medium">No candidates yet</h2>
+            <p className="mt-1 text-sm text-muted">Run ingestion to pull and score applicants for this role.</p>
             <div className="mt-4">
               <Button size="sm" loading={ingesting} onClick={onIngest}>
                 Run ingestion
@@ -338,13 +299,8 @@ export default function JobPipeline({
         ) : (
           <Card className="divide-y divide-line overflow-hidden">
             {tab === "shortlist" && (
-              <div className="flex items-center gap-3 bg-surface-2/60 px-4 py-2 text-xs text-muted">
-                <Checkbox
-                  checked={allSelected}
-                  indeterminate={!allSelected && selected.size > 0}
-                  onChange={toggleAll}
-                  aria-label="Select all"
-                />
+              <div className="flex items-center gap-3 bg-surface-2/50 px-4 py-2 text-xs text-muted">
+                <Checkbox checked={allSelected} indeterminate={!allSelected && selected.size > 0} onChange={toggleAll} aria-label="Select all in view" />
                 <span>Select all in view</span>
               </div>
             )}
@@ -363,23 +319,17 @@ export default function JobPipeline({
       </div>
 
       <SlideOver open={openId !== null} onClose={() => setOpenId(null)}>
-        {openId && (
-          <CandidateDetail
-            candidateId={openId}
-            onClose={() => setOpenId(null)}
-            onChanged={() => void refresh()}
-          />
-        )}
+        {openId && <CandidateDetail candidateId={openId} onClose={() => setOpenId(null)} onChanged={() => void refresh()} />}
       </SlideOver>
-    </main>
+    </div>
   );
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-md bg-surface-2 py-1.5">
+    <div className="rounded-lg bg-surface-2 py-1.5">
       <div className="font-mono text-base font-semibold tabular-nums">{value}</div>
-      <div className="text-[10px] uppercase tracking-wide text-muted">{label}</div>
+      <div className="text-[10px] uppercase tracking-wide text-faint">{label}</div>
     </div>
   );
 }
@@ -398,88 +348,80 @@ function Row({
   onOpen: () => void;
 }) {
   const c = r.candidate;
+  const tier = r.evaluation?.recommendation ?? null;
+  const dec = DECISION_META[c.status];
   return (
-    <div
-      onClick={onOpen}
-      className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-2/50"
-    >
+    <div onClick={onOpen} className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-2/50">
       {selectable && (
         <div onClick={(e) => e.stopPropagation()}>
-          <Checkbox checked={selected} onChange={onToggle} aria-label={`Select ${c.name}`} />
+          <Checkbox checked={selected} onChange={onToggle} aria-label={`Select ${c.name ?? "candidate"}`} />
         </div>
       )}
-      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface-2 text-xs font-semibold text-ink-2">
+      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface-2 font-mono text-xs font-medium text-muted">
         {initials(c.name)}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium">{c.name ?? "(unknown)"}</div>
+        <div className="truncate text-sm font-medium">{c.name ?? "Unknown"}</div>
         <div className="truncate text-xs text-muted">{c.email ?? "—"}</div>
       </div>
-      <div className="hidden w-14 shrink-0 text-right font-mono text-sm tabular-nums sm:block">
+      <div className="hidden w-12 shrink-0 text-right font-mono text-sm tabular-nums sm:block">
         {r.evaluation ? r.evaluation.overall_score.toFixed(1) : "—"}
       </div>
-      <div className="hidden w-24 shrink-0 sm:block">
-        {r.evaluation && <TierChip tier={r.evaluation.recommendation} />}
+      {/* the two-axis signal: AI tier word · verdict track · your decision word */}
+      <div className="flex shrink-0 items-center gap-2.5">
+        <span
+          className="hidden w-16 text-right text-xs font-medium md:inline"
+          style={{ color: tier ? TIER_META[tier].color : "var(--faint)" }}
+        >
+          {tier ? TIER_META[tier].label : "Unscored"}
+        </span>
+        <VerdictTrack tier={tier} status={c.status} />
+        <span
+          className="w-28 text-xs font-medium"
+          style={{ color: dec.kind === "undecided" ? "var(--muted)" : dec.color }}
+        >
+          {dec.label}
+        </span>
       </div>
-      <div className="w-32 shrink-0 text-right">
-        <StatusBadge status={c.status} />
-      </div>
-      <svg viewBox="0 0 16 16" className="h-4 w-4 shrink-0 text-muted" fill="none">
+      <svg viewBox="0 0 16 16" className="h-4 w-4 shrink-0 text-faint" fill="none">
         <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     </div>
   );
 }
 
-function BulkResultPanel({
-  result,
-  onDismiss,
-}: {
-  result: BulkSendResult;
-  onDismiss: () => void;
-}) {
+function BulkResultPanel({ result, onDismiss }: { result: BulkSendResult; onDismiss: () => void }) {
   return (
-    <div className="mt-3 rounded-lg border border-line bg-surface p-4">
+    <div className="mt-3 rounded-xl border border-line bg-surface p-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4 text-sm">
           <span>
-            <span className="font-mono font-semibold" style={{ color: "var(--tier-shortlist)" }}>
-              {result.sent_count}
-            </span>{" "}
-            sent
+            <span className="font-mono font-semibold" style={{ color: "var(--tier-shortlist)" }}>{result.sent_count}</span> sent
           </span>
-          <span className="text-ink-2">
+          <span className="text-muted">
             <span className="font-mono font-semibold">{result.skipped_count}</span> skipped
           </span>
           <span style={{ color: result.failed_count ? "var(--tier-reject)" : undefined }}>
             <span className="font-mono font-semibold">{result.failed_count}</span> failed
           </span>
-          <span className="text-muted">· {result.requested_count} requested</span>
+          <span className="font-mono text-faint">· {result.requested_count} requested</span>
         </div>
         <button onClick={onDismiss} className="text-xs text-muted hover:text-ink">
           Dismiss
         </button>
       </div>
-
       {result.failed_count > 0 && (
-        <div
-          className="mt-3 rounded-md p-2.5 text-xs"
-          style={{ background: "var(--tier-reject-tint)", color: "var(--tier-reject)" }}
-        >
-          <div className="mb-1 font-medium">Failed — needs attention:</div>
+        <div className="mt-3 rounded-lg p-2.5 text-xs" style={{ background: "var(--tier-reject-tint)", color: "var(--tier-reject)" }}>
+          <div className="mb-1 font-medium">Failed — needs attention</div>
           <ul className="space-y-0.5">
             {result.failed.map((o) => (
-              <li key={o.candidate_id} className="font-mono">
-                {o.candidate_id.slice(0, 8)} — {o.detail ?? o.status}
-              </li>
+              <li key={o.candidate_id} className="font-mono">{o.candidate_id.slice(0, 8)} — {o.detail ?? o.status}</li>
             ))}
           </ul>
         </div>
       )}
       {result.skipped_count > 0 && (
-        <p className="mt-2 text-xs text-muted">
-          Skipped (expected): not shortlisted, already sent, or not in this job.
-        </p>
+        <p className="mt-2 text-xs text-muted">Skipped is expected — not shortlisted, already sent, or not in this job.</p>
       )}
     </div>
   );

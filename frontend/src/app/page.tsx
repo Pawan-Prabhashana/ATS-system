@@ -1,15 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  getJobSummary,
-  ingestJob,
-  listJobs,
-  type Job,
-  type JobSummary,
-} from "@/lib/api";
-import { TierBar, TIER_META, TIER_ORDER } from "@/components/badges";
+import { getJobSummary, ingestJob, listJobs, type Job, type JobSummary } from "@/lib/api";
+import { TierBar, TIER_META, TIER_ORDER } from "@/components/verdict";
 import { Button, Card, Spinner } from "@/components/ui";
 
 export default function JobsOverview() {
@@ -25,7 +20,7 @@ export default function JobsOverview() {
       const s = await getJobSummary(id);
       setSummaries((m) => ({ ...m, [id]: s }));
     } catch {
-      /* leave summary missing */
+      /* leave missing */
     }
   }, []);
 
@@ -36,7 +31,7 @@ export default function JobsOverview() {
       setJobs(js);
       js.forEach((j) => void loadSummary(j.id));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load jobs.");
+      setError(e instanceof Error ? e.message : "Couldn't load jobs. Is the backend running?");
       setJobs([]);
     }
   }, [loadSummary]);
@@ -53,27 +48,25 @@ export default function JobsOverview() {
       await loadSummary(id);
       setFlash((f) => ({
         ...f,
-        [id]: `Ingested ${res.processed} · ${res.skipped} skipped${
-          res.failed ? ` · ${res.failed} failed` : ""
-        }`,
+        [id]: `Added ${res.processed} · ${res.skipped} already in${res.failed ? ` · ${res.failed} failed` : ""}`,
       }));
     } catch (e) {
-      setFlash((f) => ({
-        ...f,
-        [id]: e instanceof Error ? e.message : "Ingestion failed.",
-      }));
+      setFlash((f) => ({ ...f, [id]: e instanceof Error ? e.message : "Ingestion failed." }));
     } finally {
       setBusy((b) => ({ ...b, [id]: false }));
     }
   }
 
   return (
-    <main className="mx-auto max-w-7xl px-6 py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Jobs</h1>
-        <p className="mt-1 text-sm text-ink-2">
-          Open roles and their candidate pipelines.
-        </p>
+    <div className="mx-auto max-w-6xl px-6 py-8">
+      <div className="mb-6 flex items-end justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-medium tracking-tight">Jobs</h1>
+          <p className="mt-1 text-sm text-muted">Open roles and their candidate pipelines.</p>
+        </div>
+        <Link href="/jobs/new">
+          <Button size="sm">+ New job</Button>
+        </Link>
       </div>
 
       {error && (
@@ -91,17 +84,22 @@ export default function JobsOverview() {
         </div>
       ) : jobs.length === 0 ? (
         <Card className="px-6 py-14 text-center">
-          <p className="text-sm text-ink-2">No jobs yet.</p>
-          <p className="mt-1 text-xs text-muted">
-            Seed sample jobs from the backend:{" "}
-            <code className="font-mono">python -m app.cli seed-jobs</code>
+          <h2 className="font-display text-base font-medium">Create your first job</h2>
+          <p className="mx-auto mt-1 max-w-sm text-sm text-muted">
+            A job holds a description, the criteria you score against, and a link to its Google Form.
           </p>
+          <div className="mt-4">
+            <Link href="/jobs/new">
+              <Button size="sm">+ New job</Button>
+            </Link>
+          </div>
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {jobs.map((job) => {
             const s = summaries[job.id];
             const total = s?.total ?? 0;
+            const connected = Boolean(job.google_sheet_id);
             return (
               <Card
                 key={job.id}
@@ -110,67 +108,58 @@ export default function JobsOverview() {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h2 className="truncate text-base font-semibold tracking-tight group-hover:underline">
+                    <h2 className="truncate font-display text-base font-medium tracking-tight group-hover:underline">
                       {job.title}
                     </h2>
-                    <div className="mt-0.5 font-mono text-xs text-muted">{job.id}</div>
+                    <div className="mt-1 flex items-center gap-2 text-xs">
+                      <span
+                        className="inline-flex items-center gap-1.5"
+                        style={{ color: connected ? "var(--tier-shortlist)" : "var(--muted)" }}
+                      >
+                        <span
+                          className="inline-block h-1.5 w-1.5 rounded-full"
+                          style={{ background: connected ? "var(--tier-shortlist)" : "var(--faint)" }}
+                        />
+                        {connected ? "Connected to a form" : "Not connected"}
+                      </span>
+                    </div>
                   </div>
                   <span
                     className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize"
                     style={{
-                      color: job.status === "open" ? "var(--tier-shortlist)" : "var(--muted)",
-                      borderColor:
-                        job.status === "open"
-                          ? "color-mix(in srgb, var(--tier-shortlist) 35%, transparent)"
-                          : "var(--line-2)",
+                      color: job.status === "open" ? "var(--accent-ink)" : "var(--muted)",
+                      borderColor: job.status === "open" ? "var(--accent)" : "var(--line-2)",
                     }}
                   >
                     {job.status}
                   </span>
                 </div>
 
-                {/* Summary */}
                 <div className="mt-4">
                   {s === undefined ? (
                     <div className="h-1.5 w-full animate-pulse rounded-full bg-surface-2" />
                   ) : total === 0 ? (
-                    <p className="text-xs text-muted">
-                      No candidates yet — run ingestion to populate.
-                    </p>
+                    <p className="text-xs text-muted">No candidates yet — run ingestion to pull applicants.</p>
                   ) : (
                     <>
                       <TierBar counts={s.by_tier} total={total} />
                       <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
                         {TIER_ORDER.map((t) => (
-                          <span key={t} className="inline-flex items-center gap-1.5 text-ink-2">
-                            <span
-                              className="inline-block h-1.5 w-1.5 rounded-full"
-                              style={{ background: TIER_META[t].dot }}
-                            />
+                          <span key={t} className="inline-flex items-center gap-1.5 text-muted">
+                            <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: TIER_META[t].color }} />
                             {TIER_META[t].label}
-                            <span className="font-mono font-medium text-ink tabular-nums">
-                              {s.by_tier[t]}
-                            </span>
+                            <span className="font-mono font-medium text-ink tabular-nums">{s.by_tier[t]}</span>
                           </span>
                         ))}
-                        <span className="ml-auto text-muted">
-                          {total} total ·{" "}
-                          <span className="text-ink-2">
-                            {s.by_status.shortlisted} shortlisted
-                          </span>
-                          {s.by_status.assignment_sent > 0 && (
-                            <>
-                              {" "}
-                              · {s.by_status.assignment_sent} sent
-                            </>
-                          )}
+                        <span className="ml-auto font-mono text-faint tabular-nums">
+                          {total} total · {s.by_status.shortlisted} shortlisted
+                          {s.by_status.assignment_sent > 0 && <> · {s.by_status.assignment_sent} sent</>}
                         </span>
                       </div>
                     </>
                   )}
                 </div>
 
-                {/* Actions */}
                 <div className="mt-4 flex items-center gap-3 border-t border-line pt-3">
                   <Button
                     size="sm"
@@ -183,13 +172,16 @@ export default function JobsOverview() {
                   >
                     Run ingestion
                   </Button>
-                  <span className="text-xs text-link group-hover:underline">
-                    Open pipeline →
-                  </span>
+                  <span className="text-xs text-[var(--accent-ink)] group-hover:underline">Open pipeline →</span>
+                  <Link
+                    href={`/jobs/${job.id}/settings`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-xs text-muted hover:text-ink hover:underline"
+                  >
+                    Settings
+                  </Link>
                   {flash[job.id] && (
-                    <span className="ml-auto truncate text-xs text-muted">
-                      {flash[job.id]}
-                    </span>
+                    <span className="ml-auto truncate font-mono text-xs text-faint">{flash[job.id]}</span>
                   )}
                 </div>
               </Card>
@@ -197,6 +189,6 @@ export default function JobsOverview() {
           })}
         </div>
       )}
-    </main>
+    </div>
   );
 }

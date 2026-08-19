@@ -1,43 +1,35 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
+import { AppShell } from "@/components/shell/AppShell";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Self-hosted at build by next/font (no runtime CDN fetch) with metric-adjusted
+// fallbacks, so fonts load reliably without a layout-shifting FOUT.
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
+  variable: "--font-space-grotesk",
+  display: "swap",
 });
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const jetbrains = JetBrains_Mono({
   subsets: ["latin"],
+  variable: "--font-jetbrains",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Catalist — Recruit Screening",
-  description: "Screen, review, and shortlist candidates across jobs.",
+  title: "Catalist — recruit screening",
+  description: "Triage AI-scored candidates and configure open roles.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full`}
+      className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrains.variable} h-full`}
     >
       <body className="min-h-full">
-        <header className="sticky top-0 z-30 border-b border-line bg-bg/85 backdrop-blur-md">
-          <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-6">
-            <a href="/" className="flex items-center gap-2">
-              <span className="grid h-6 w-6 place-items-center rounded-md bg-ink text-[13px] font-bold text-[var(--bg)]">
-                C
-              </span>
-              <span className="text-[15px] font-semibold tracking-tight">
-                Catalist
-              </span>
-              <span className="text-[13px] text-muted">Recruit Screening</span>
-            </a>
-          </div>
-        </header>
-        {children}
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

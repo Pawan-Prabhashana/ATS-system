@@ -34,7 +34,25 @@ export interface Job {
   job_description: string;
   rubric: Rubric;
   status: JobStatus;
+  google_sheet_id: string | null;
   created_at: string;
+}
+
+export interface JobCreatePayload {
+  title: string;
+  job_description: string;
+  rubric: Rubric;
+  google_sheet_id?: string | null;
+  status?: JobStatus;
+}
+
+export type JobUpdatePayload = Partial<JobCreatePayload>;
+
+export interface IntakeProbeResult {
+  connected: boolean;
+  row_count: number;
+  detected_columns: Record<string, string | null>;
+  error: string | null;
 }
 
 export interface JobSummary {
@@ -164,6 +182,31 @@ export function listJobs(): Promise<Job[]> {
 
 export function getJob(id: string): Promise<Job> {
   return request<Job>(`/jobs/${encodeURIComponent(id)}`);
+}
+
+export function createJob(payload: JobCreatePayload): Promise<Job> {
+  return request<Job>("/jobs", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function updateJob(id: string, patch: JobUpdatePayload): Promise<Job> {
+  return request<Job>(`/jobs/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function closeJob(id: string): Promise<Job> {
+  return request<Job>(`/jobs/${encodeURIComponent(id)}/close`, { method: "POST" });
+}
+
+export function testIntake(
+  id: string,
+  googleSheetId?: string | null,
+): Promise<IntakeProbeResult> {
+  return request<IntakeProbeResult>(`/jobs/${encodeURIComponent(id)}/test-intake`, {
+    method: "POST",
+    body: JSON.stringify({ google_sheet_id: googleSheetId?.trim() || null }),
+  });
 }
 
 export function getJobSummary(id: string): Promise<JobSummary> {

@@ -1,61 +1,59 @@
 @import "tailwindcss";
 
-/* ---------------------------------------------------------------------------
-   Catalist design tokens. Warm-neutral "stone" base, near-black ink for
-   primary actions, and a restrained tier palette carried mostly by small
-   saturated dots (see DESIGN_NOTES.md).
---------------------------------------------------------------------------- */
+/* Catalist — "control surface". Cool slate workspace; the two-axis signal
+   (AI tier vs human decision) lives in DISTINCT colour families. See
+   DESIGN_NOTES.md. */
 :root {
-  --bg: #faf9f7;          /* warm off-white page */
-  --surface: #ffffff;     /* cards */
-  --surface-2: #f5f4f1;   /* inset / hover */
-  --ink: #1c1917;         /* near-black text + primary action */
-  --ink-2: #57534e;       /* secondary text */
-  --muted: #a8a29e;       /* tertiary / meta */
-  --line: #e8e5e1;        /* hairline borders */
-  --line-2: #d9d5d0;      /* stronger border */
-  --link: #2563eb;
+  --bg: #eef2f6;          /* cool paper (blue-gray) */
+  --surface: #ffffff;
+  --surface-2: #e7ecf2;   /* inset / hover / track ground */
+  --ink: #141b2b;         /* blue-black text */
+  --muted: #64748b;       /* secondary text */
+  --faint: #94a3b8;       /* tertiary / undecided ring */
+  --line: #dce3ec;        /* hairline */
+  --line-2: #c7d0dc;      /* stronger border */
+  --accent: #2e56e6;      /* signal blue */
+  --accent-ink: #1c3aad;  /* accent text on light */
+  --accent-tint: #e7edfd;
 
-  /* Tier accents — used as small dots + text, never as loud fills. */
-  --tier-shortlist: #0f766e;      /* deep teal */
-  --tier-shortlist-dot: #14b8a6;
-  --tier-shortlist-tint: #edfbf7;
-  --tier-borderline: #a16207;     /* ochre */
-  --tier-borderline-dot: #eab308;
-  --tier-borderline-tint: #fdf7ea;
-  --tier-reject: #a13b3b;         /* muted clay */
-  --tier-reject-dot: #d06a6a;
-  --tier-reject-tint: #fbf1f0;
+  /* AI recommendation (tier) — a signal set */
+  --tier-shortlist: #1c8b5a;
+  --tier-shortlist-tint: #e5f3ec;
+  --tier-borderline: #b3781f;
+  --tier-borderline-tint: #f7efe0;
+  --tier-reject: #ce4257;
+  --tier-reject-tint: #fbe9ec;
 
-  /* Status accents (human decision) — quieter, mostly neutral. */
-  --status-sent: #4338ca;         /* indigo, the "action taken" state */
-  --status-sent-tint: #eef0fb;
+  /* Human decision (status) — a cool action set (distinct family) */
+  --dec-shortlisted: #2e56e6;
+  --dec-rejected: #3a4557;
+  --dec-sent: #6d4ae0;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #16151a;
-    --surface: #1e1d23;
-    --surface-2: #26252c;
-    --ink: #f2f0ee;
-    --ink-2: #b4afa8;
-    --muted: #837e78;
-    --line: #302f37;
-    --line-2: #3c3b44;
-    --link: #7ea2ff;
+    --bg: #0f141c;
+    --surface: #171e28;
+    --surface-2: #1f2836;
+    --ink: #e8edf4;
+    --muted: #93a1b4;
+    --faint: #5c6b80;
+    --line: #26303f;
+    --line-2: #33404f;
+    --accent: #6d8bff;
+    --accent-ink: #adc0ff;
+    --accent-tint: #17203a;
 
-    --tier-shortlist: #5eddc9;
-    --tier-shortlist-dot: #2dd4bf;
-    --tier-shortlist-tint: #10231f;
-    --tier-borderline: #e8bf6a;
-    --tier-borderline-dot: #eab308;
-    --tier-borderline-tint: #241f10;
-    --tier-reject: #e88f8f;
-    --tier-reject-dot: #d06a6a;
-    --tier-reject-tint: #251312;
+    --tier-shortlist: #45c78d;
+    --tier-shortlist-tint: #10241a;
+    --tier-borderline: #d9a441;
+    --tier-borderline-tint: #241d10;
+    --tier-reject: #ec6b7d;
+    --tier-reject-tint: #271217;
 
-    --status-sent: #a5b4fc;
-    --status-sent-tint: #1a1a2e;
+    --dec-shortlisted: #6d8bff;
+    --dec-rejected: #93a1b4;
+    --dec-sent: #a68bff;
   }
 }
 
@@ -64,13 +62,15 @@
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-ink: var(--ink);
-  --color-ink-2: var(--ink-2);
   --color-muted: var(--muted);
+  --color-faint: var(--faint);
   --color-line: var(--line);
   --color-line-2: var(--line-2);
-  --color-link: var(--link);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-space-grotesk);
+  --font-mono: var(--font-jetbrains);
 }
 
 html {
@@ -81,18 +81,31 @@ html {
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Subtle, consistent focus ring for keyboard users. */
+/* Space Grotesk stays display-only — never on body copy. */
+.font-display {
+  font-family: var(--font-space-grotesk), var(--font-inter), sans-serif;
+}
+
 :focus-visible {
-  outline: 2px solid var(--ink);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;
 }
 
-/* Thin scrollbars inside scroll regions (CV pages, slide-over). */
 .thin-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--line-2) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

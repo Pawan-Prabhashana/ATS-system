@@ -126,7 +126,20 @@ def get_google_sheet_id() -> str | None:
 
 
 def get_google_service_account_file() -> str | None:
-    return os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
+    """Return the service-account JSON path, or None if none is configured.
+
+    Relative paths resolve against the backend root. If the env var is unset
+    (or empty), fall back to ``backend/service-account.json`` when that file
+    exists so local ``.env`` / uvicorn ``--env-file`` quirks cannot hide it.
+    """
+    raw = (os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE") or "").strip().strip('"').strip("'")
+    if raw:
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            path = BACKEND_ROOT / path
+        return str(path)
+    default = BACKEND_ROOT / "service-account.json"
+    return str(default) if default.exists() else None
 
 
 def get_email_mode() -> str:

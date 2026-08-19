@@ -77,9 +77,11 @@ def test_google_fetch_without_sheet_id_raises_config_error(monkeypatch):
         GoogleFormsIntakeSource().fetch_new_submissions()
 
 
-def test_google_fetch_without_service_account_raises_config_error(monkeypatch):
+def test_google_fetch_without_service_account_raises_config_error(monkeypatch, tmp_path):
     monkeypatch.setenv("GOOGLE_SHEET_ID", "sheet-123")
     monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_FILE", raising=False)
+    # Isolate from a developer-local backend/service-account.json fallback.
+    monkeypatch.setattr("app.config.BACKEND_ROOT", tmp_path)
     with pytest.raises(IntakeConfigError):
         GoogleFormsIntakeSource().fetch_new_submissions()
 

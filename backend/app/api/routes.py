@@ -186,8 +186,16 @@ class IntakeProbeResult(BaseModel):
     error: Optional[str] = None
 
 
+class TestIntakeRequest(BaseModel):
+    """Optional override so the settings form can test a Sheet ID before save."""
+
+    google_sheet_id: Optional[str] = None
+
+
 @router.post("/jobs/{job_id}/test-intake", response_model=IntakeProbeResult)
-def test_intake(job_id: str) -> IntakeProbeResult:
+def test_intake(
+    job_id: str, body: TestIntakeRequest | None = None
+) -> IntakeProbeResult:
     """Operability check: try to read the job's Google Sheet header + row count.
 
     Never raises to a 500 — any Google/credentials error is reported as
@@ -197,7 +205,9 @@ def test_intake(job_id: str) -> IntakeProbeResult:
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
 
-    if not job.google_sheet_id:
+    typed = (body.google_sheet_id or "").strip() if body else ""
+    sheet_id = typed or job.google_sheet_id
+    if not sheet_id:
         return IntakeProbeResult(
             connected=False,
             error="No Google Sheet connected for this job.",
@@ -205,7 +215,7 @@ def test_intake(job_id: str) -> IntakeProbeResult:
 
     from app.intake.google_forms import GoogleFormsIntakeSource
 
-    source = GoogleFormsIntakeSource(sheet_id=job.google_sheet_id)
+    source = GoogleFormsIntakeSource(sheet_id=sheet_id)
     return IntakeProbeResult(**source.probe())
 
 

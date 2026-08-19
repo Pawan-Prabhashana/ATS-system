@@ -9,8 +9,8 @@ import {
   type CandidateDetail as Detail,
   type Decision,
 } from "@/lib/api";
-import { StatusBadge, TierChip } from "@/components/badges";
-import { Button, Label, Spinner } from "@/components/ui";
+import { DecisionChip, TierChip, VerdictTrack } from "@/components/verdict";
+import { Button, Label, Spinner, TextArea } from "@/components/ui";
 import { formatDate, formatDateTime, initials } from "@/lib/format";
 
 export function CandidateDetail({
@@ -41,7 +41,7 @@ export function CandidateDetail({
     try {
       setDetail(await getCandidate(candidateId));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load candidate.");
+      setError(e instanceof Error ? e.message : "Couldn't load this candidate. Try again.");
     } finally {
       setLoading(false);
     }
@@ -65,7 +65,7 @@ export function CandidateDetail({
       setPending(null);
       setNote("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to record decision.");
+      setError(e instanceof Error ? e.message : "Couldn't save your decision. Try again.");
     } finally {
       setSavingDecision(false);
     }
@@ -79,49 +79,49 @@ export function CandidateDetail({
       setAssignConfirm(false);
       setAssignForce(false);
     } catch (e) {
-      setAssignError(e instanceof Error ? e.message : "Failed to send assignment.");
+      setAssignError(e instanceof Error ? e.message : "Couldn't send the assignment. Try again.");
     } finally {
       setAssignBusy(false);
     }
   }
+
+  const tier = detail?.evaluation?.recommendation ?? null;
 
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="flex items-start gap-3 border-b border-line px-6 py-4">
         {detail && (
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-surface-2 text-sm font-semibold text-ink-2">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-surface-2 font-mono text-sm font-medium text-muted">
             {initials(detail.candidate.name)}
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <div className="truncate text-lg font-semibold tracking-tight">
+          <div className="truncate font-display text-lg font-medium tracking-tight">
             {detail?.candidate.name ?? (loading ? "Loading…" : "Candidate")}
           </div>
-          <div className="truncate text-sm text-ink-2">
-            {detail?.candidate.email ?? " "}
-          </div>
+          <div className="truncate text-sm text-muted">{detail?.candidate.email ?? " "}</div>
           {detail?.job_title && (
-            <div className="mt-0.5 text-xs text-muted">{detail.job_title}</div>
+            <div className="mt-0.5 text-xs text-faint">{detail.job_title}</div>
           )}
         </div>
-        <div className="flex flex-col items-end gap-1.5">
-          {detail?.evaluation && <TierChip tier={detail.evaluation.recommendation} />}
-          {detail && <StatusBadge status={detail.candidate.status} />}
-        </div>
+        {detail && (
+          <div className="flex flex-col items-end gap-2">
+            <VerdictTrack tier={tier} status={detail.candidate.status} size="md" />
+            <div className="flex items-center gap-1.5">
+              {tier && <TierChip tier={tier} />}
+              <DecisionChip status={detail.candidate.status} />
+            </div>
+          </div>
+        )}
         {onClose && (
           <button
             onClick={onClose}
             aria-label="Close"
-            className="ml-1 grid h-8 w-8 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-ink"
+            className="ml-1 grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-ink"
           >
             <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none">
-              <path
-                d="M4 4l8 8M12 4l-8 8"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
+              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           </button>
         )}
@@ -137,40 +137,26 @@ export function CandidateDetail({
         </div>
       ) : (
         <div className="thin-scroll flex-1 overflow-y-auto px-6 py-5">
-          {error && (
-            <div
-              className="mb-4 rounded-lg border px-3 py-2 text-sm"
-              style={{
-                color: "var(--tier-reject)",
-                borderColor: "color-mix(in srgb, var(--tier-reject) 35%, transparent)",
-                background: "var(--tier-reject-tint)",
-              }}
-            >
-              {error}
-            </div>
-          )}
+          {error && <Banner>{error}</Banner>}
 
-          {/* Score */}
           {detail.evaluation && (
             <div className="mb-6 flex items-start justify-between gap-4">
               <div>
                 <Label>Overall score</Label>
-                <div className="mt-1 font-mono text-4xl font-semibold tabular-nums tracking-tight">
+                <div className="mt-1 font-mono text-4xl font-semibold tracking-tight tabular-nums">
                   {detail.evaluation.overall_score.toFixed(1)}
-                  <span className="ml-1 text-base font-normal text-muted">/100</span>
+                  <span className="ml-1 text-base font-normal text-faint">/100</span>
                 </div>
-                <p className="mt-2 max-w-md text-sm leading-relaxed text-ink-2">
+                <p className="mt-2 max-w-md text-sm leading-relaxed text-muted">
                   {detail.evaluation.summary}
                 </p>
-                <p className="mt-1.5 text-xs text-muted">
-                  Evaluated by {detail.evaluation.evaluated_by}
+                <p className="mt-1.5 font-mono text-xs text-faint">
+                  {detail.evaluation.evaluated_by}
                 </p>
               </div>
-              <TierChip tier={detail.evaluation.recommendation} size="md" />
             </div>
           )}
 
-          {/* Decision gate */}
           <DecisionGate
             detail={detail}
             pending={pending}
@@ -188,14 +174,13 @@ export function CandidateDetail({
             }}
           />
 
-          {/* Single-candidate send (secondary to bulk send). */}
           {(detail.candidate.status === "shortlisted" ||
             detail.candidate.status === "assignment_sent") && (
-            <div className="mt-4 rounded-lg border border-line bg-surface p-4">
+            <div className="mt-4 rounded-xl border border-line bg-surface p-4">
               <div className="flex items-center justify-between">
                 <Label>Assignment · one-off</Label>
                 {detail.candidate.status === "assignment_sent" && (
-                  <span className="text-xs text-muted">
+                  <span className="font-mono text-xs text-faint">
                     sent{" "}
                     {detail.candidate.assignment_sent_count > 1
                       ? `${detail.candidate.assignment_sent_count}×`
@@ -205,17 +190,9 @@ export function CandidateDetail({
                 )}
               </div>
               <p className="mt-1 mb-3 text-xs text-muted">
-                Prefer <span className="text-ink-2">Send to Selected</span> on the
-                pipeline for batches. Use this for a single resend (e.g. bounced).
+                Send in a batch from the pipeline. Use this only for a single resend — a bounced email, say.
               </p>
-              {assignError && (
-                <div
-                  className="mb-2 rounded-md px-2.5 py-1.5 text-xs"
-                  style={{ color: "var(--tier-reject)", background: "var(--tier-reject-tint)" }}
-                >
-                  {assignError}
-                </div>
-              )}
+              {assignError && <Banner>{assignError}</Banner>}
               {!assignConfirm ? (
                 <Button
                   variant="secondary"
@@ -226,21 +203,14 @@ export function CandidateDetail({
                     setAssignError(null);
                   }}
                 >
-                  {detail.candidate.status === "assignment_sent"
-                    ? "Resend assignment"
-                    : "Send assignment"}
+                  {detail.candidate.status === "assignment_sent" ? "Resend assignment" : "Send assignment"}
                 </Button>
               ) : (
                 <div className="flex items-center gap-2">
                   <Button size="sm" loading={assignBusy} onClick={confirmSend}>
                     Confirm {assignForce ? "resend" : "send"}
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={assignBusy}
-                    onClick={() => setAssignConfirm(false)}
-                  >
+                  <Button variant="ghost" size="sm" disabled={assignBusy} onClick={() => setAssignConfirm(false)}>
                     Cancel
                   </Button>
                 </div>
@@ -248,33 +218,27 @@ export function CandidateDetail({
             </div>
           )}
 
-          {/* Criteria */}
           {detail.evaluation && detail.evaluation.criterion_scores.length > 0 && (
             <div className="mt-6">
               <Label>Criteria</Label>
               <div className="mt-2 space-y-2.5">
                 {detail.evaluation.criterion_scores.map((c) => (
-                  <div
-                    key={c.criterion_name}
-                    className="rounded-lg border border-line bg-surface p-3.5"
-                  >
+                  <div key={c.criterion_name} className="rounded-xl border border-line bg-surface p-3.5">
                     <div className="flex items-baseline justify-between gap-3">
                       <div className="text-sm font-medium">{c.criterion_name}</div>
                       <div className="shrink-0 font-mono text-sm tabular-nums">
                         <span className="font-semibold">{c.score.toFixed(0)}</span>
-                        <span className="text-muted"> · w{c.weight}</span>
+                        <span className="text-faint"> · w{c.weight}</span>
                       </div>
                     </div>
                     <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-surface-2">
                       <div
-                        className="h-1 rounded-full bg-ink/70"
-                        style={{ width: `${Math.max(0, Math.min(100, c.score))}%` }}
+                        className="h-1 rounded-full"
+                        style={{ width: `${Math.max(0, Math.min(100, c.score))}%`, background: "var(--accent)" }}
                       />
                     </div>
                     {c.evidence && (
-                      <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
-                        {c.evidence}
-                      </p>
+                      <p className="mt-2 text-[13px] leading-relaxed text-muted">{c.evidence}</p>
                     )}
                   </div>
                 ))}
@@ -282,7 +246,6 @@ export function CandidateDetail({
             </div>
           )}
 
-          {/* CV pages */}
           <div className="mt-6">
             <div className="flex items-center justify-between">
               <Label>CV pages</Label>
@@ -291,7 +254,7 @@ export function CandidateDetail({
                   href={mediaUrl(detail.cv_url)}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-xs text-link hover:underline"
+                  className="text-xs text-[var(--accent-ink)] hover:underline"
                 >
                   Open PDF ↗
                 </a>
@@ -299,12 +262,12 @@ export function CandidateDetail({
             </div>
             {detail.text_extraction_quality === "low" && (
               <p className="mt-1 text-xs" style={{ color: "var(--tier-borderline)" }}>
-                Low text extraction — likely a scanned CV; judged mainly from images.
+                Little text extracted — likely a scanned CV; judged mainly from the images.
               </p>
             )}
             <div className="mt-2 space-y-3">
               {detail.page_image_urls.length === 0 ? (
-                <p className="text-sm text-muted">No page images.</p>
+                <p className="text-sm text-faint">No page images.</p>
               ) : (
                 detail.page_image_urls.map((url, i) => (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -312,7 +275,7 @@ export function CandidateDetail({
                     key={url}
                     src={mediaUrl(url)}
                     alt={`Page ${i + 1}`}
-                    className="w-full rounded-lg border border-line"
+                    className="w-full rounded-xl border border-line"
                   />
                 ))
               )}
@@ -321,6 +284,21 @@ export function CandidateDetail({
           <div className="h-4" />
         </div>
       )}
+    </div>
+  );
+}
+
+function Banner({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="mb-4 rounded-lg border px-3 py-2 text-sm"
+      style={{
+        color: "var(--tier-reject)",
+        borderColor: "color-mix(in srgb, var(--tier-reject) 35%, transparent)",
+        background: "var(--tier-reject-tint)",
+      }}
+    >
+      {children}
     </div>
   );
 }
@@ -346,18 +324,18 @@ function DecisionGate({
 }) {
   const decided = detail.candidate.decided_at !== null;
   return (
-    <div className="rounded-lg border border-line bg-surface p-4">
+    <div className="rounded-xl border border-line bg-surface p-4">
       <div className="flex items-center justify-between">
-        <Label>{decided ? "Decision" : "Your decision"}</Label>
+        <Label>{decided ? "Your decision" : "Decide"}</Label>
         {decided && detail.candidate.decided_at && (
-          <span className="text-xs text-muted">
+          <span className="font-mono text-xs text-faint">
             {formatDateTime(detail.candidate.decided_at)}
           </span>
         )}
       </div>
 
       {decided && detail.candidate.reviewer_note && (
-        <p className="mt-2 text-sm text-ink-2">“{detail.candidate.reviewer_note}”</p>
+        <p className="mt-2 text-sm text-muted">“{detail.candidate.reviewer_note}”</p>
       )}
 
       {pending === null ? (
@@ -373,24 +351,18 @@ function DecisionGate({
             Reject
           </Button>
           {detail.candidate.status === "assignment_sent" && (
-            <span className="ml-auto self-center text-xs text-muted">
+            <span className="ml-auto self-center font-mono text-xs text-faint">
               due {formatDate(detail.candidate.assignment_deadline)}
             </span>
           )}
         </div>
       ) : (
         <div className="mt-3">
-          <p className="mb-2 text-sm text-ink-2">
-            Confirm <span className="font-semibold text-ink">{pending}</span> for{" "}
+          <p className="mb-2 text-sm text-muted">
+            {pending === "shortlist" ? "Shortlist" : "Reject"}{" "}
             {detail.candidate.name ?? "this candidate"}?
           </p>
-          <textarea
-            value={note}
-            onChange={(e) => onNote(e.target.value)}
-            rows={2}
-            placeholder="Optional note…"
-            className="w-full resize-none rounded-md border border-line-2 bg-bg px-2.5 py-1.5 text-sm text-ink placeholder:text-muted focus:border-ink focus:outline-none"
-          />
+          <TextArea value={note} onChange={(e) => onNote(e.target.value)} rows={2} placeholder="Add a note (optional)" />
           <div className="mt-2 flex gap-2">
             <Button size="sm" loading={saving} onClick={onConfirm}>
               Confirm {pending}

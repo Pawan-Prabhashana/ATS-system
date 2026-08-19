@@ -1,100 +1,101 @@
-# Catalist frontend — design notes (Phase 7)
+# Catalist frontend — design notes (Phase 8 rebuild + redesign)
 
-## On the design skill
+> The `frontend-design` skill isn't installed on this machine, so this applies its
+> method directly: pin the brief, name a token system, choose typefaces with real
+> roles, commit to a layout + one signature element, and self-critique against the
+> generic defaults before building.
 
-Phase 7 asked me to read `/mnt/skills/public/frontend-design/SKILL.md` first. **That
-file does not exist on this machine** (only unrelated `dotenv` skill files are
-present, and it isn't in the loadable skill set). Rather than fabricate having
-read it, I applied a deliberate, self-consistent design system and documented
-every decision here so the reasoning is auditable. If the skill becomes
-available, this doc is the place to reconcile against it.
+## The brief (pinned)
 
-## Goals
+An **internal ATS triage cockpit** for a small recruiting team at a media company.
+One operator, moving fast: reviewing AI-scored candidates and configuring a handful
+of open roles. **Each screen has one job.** Density, speed-to-scan, and trust beat
+marketing gloss — but *internal ≠ ugly*.
 
-Internal review tool for a small team. Optimize for **speed-to-scan** and
-**unambiguous signals**, not decoration — but avoid the "unstyled Tailwind admin"
-look the previous UI had.
+## What we are NOT shipping — the three AI defaults
 
-## Typography
+1. **Warm cream/stone bg + serif display + terracotta/clay accent** — **this is the
+   current UI.** We move to a *cool* slate workspace; no serif; no clay.
+2. **Near-black canvas + one acid-green/vermilion accent** — we are a *light*,
+   multi-hue instrument; the accent is a considered blue, never neon-on-black.
+3. **Broadsheet hairline-rule newspaper columns** — we use panelled, tabular
+   density, not thin editorial rules and column measures.
 
-- **Geist Sans** for UI, **Geist Mono** for all numerics and IDs (scores,
-  counts, candidate ids). Numbers use `tabular-nums` so decimals align in lists
-  — a CV pipeline is a data instrument, and mono numerics read as "measured."
-- Tight tracking on headings (`tracking-tight`); a crisp, editorial feel.
-- Section headers are **quiet uppercase micro-labels** (11px, `0.08em` tracking,
-  muted) instead of loud bold — hierarchy through restraint, not weight.
+## Direction: "control surface"
 
-## Color
+A calm, **cool** workspace that reads like an instrument, not a document. A fixed
+left rail (workspace navigation) beside a dense main surface. Numbers everywhere are
+monospaced so scores line up like a readout.
 
-- **Warm-neutral "stone" base** (`--bg #faf9f7`, `--ink #1c1917`) rather than the
-  cold blue-gray that reads as "default admin." Cards are white on the warm
-  ground with hairline borders.
-- **Primary actions are near-black ink**, not a saturated brand blue — timeless,
-  high-contrast, and it lets the tier colors be the only saturated thing on
-  screen. Links use one restrained blue.
+## Core palette — 6 named tokens (cool, deliberate)
 
-### Tier palette (the deliberate anti-"alert box" choice)
-
-Tiers are **not** red/amber/green fills. Each tier is a small **saturated dot +
-colored text on a very light tint chip**:
-
-| Tier | Hue | Why |
+| token | hex | role |
 | --- | --- | --- |
-| Shortlist | deep **teal** | positive, but calmer/more considered than a "success green" |
-| Borderline | **ochre**/amber | caution without the traffic-light yellow |
-| Reject | muted **clay-rose** | clearly negative, but not a fire-engine error red |
+| `--bg` | `#EEF2F6` | cool paper (blue-gray — **not** warm cream) |
+| `--surface` | `#FFFFFF` | panels / cards |
+| `--ink` | `#141B2B` | blue-black text (not pure or warm black) |
+| `--muted` | `#64748B` | secondary text / meta |
+| `--line` | `#DCE3EC` | hairlines / borders |
+| `--accent` | `#2E56E6` | **signal blue** — interactive + active, used sparingly |
 
-The dot carries the color; the chip background stays a near-neutral tint. This
-reads instantly at a glance without shouting, and the same three hues drive the
-**stacked `TierBar`** on job cards / the pipeline summary for at-a-glance triage.
+A cohesive dark variant is defined on the same tokens; we ship light-first for
+daytime desk use.
 
-### AI tier vs. human decision — kept visually distinct
+## The signature — the two-axis signal ("the verdict track")
 
-A hard requirement: the AI recommendation and the human decision must never
-collapse into one indicator. They use **different visual languages**:
+The AI **recommendation** (tier) and the human **decision** (status) are *different
+axes* and must never collapse into one indicator. We encode that **structurally**,
+two reinforcing ways at once:
 
-- **AI tier** → filled **dot-chip** (dot + label on tint).
-- **Human status** → **outlined pill** (border, mostly no fill), with a leading
-  dot only for the "action taken" states (`assignment_sent` / `submitted`, in
-  indigo). "Undecided" is a quiet muted outline.
+1. **Different colour families.** The eye separates them pre-attentively.
+   - **AI tier** — a signal set: shortlist `#1C8B5A` (green) · borderline `#C0872B`
+     (gold) · reject `#CE4257` (rose).
+   - **Human decision** — a cool action set: undecided = *hollow* · shortlisted
+     `#2E56E6` (accent blue) · rejected `#3A4557` (graphite) · assignment sent
+     `#6D4AE0` (violet).
+2. **The verdict track** — a small two-node motif per candidate: **node 1** (filled,
+   AI-tier colour) → short connector → **node 2** (human decision). Undecided is a
+   *hollow dashed ring* ("awaiting you"); decided fills with a glyph. It reads
+   left-to-right as **"machine suggested → you decided."** An override (AI *reject* →
+   you *shortlist*) shows as **rose → blue** — instantly legible as a deliberate
+   disagreement. The motif recurs in rows, the detail header, and summaries; it is
+   the thing the tool is remembered by.
 
-So a candidate the AI rejected but a human shortlisted shows a **clay "Reject"
-dot-chip next to a teal "Shortlisted" outline pill** — unmistakably two signals.
+## Typography — 3 faces, 3 roles
 
-## Layout & interaction
+- **Display** (headings, job titles): **Space Grotesk** — geometric, faintly
+  technical; an instrument voice, not an editorial serif.
+- **Body / UI** (labels, prose, controls): **Inter** — neutral workhorse for dense
+  interfaces.
+- **Numeric** (scores, weights, counts, ids): **JetBrains Mono** — tabular figures;
+  scores read as a readout and align down columns.
 
-- **Jobs overview**: cards, each with the stacked tier bar + counts and a per-job
-  "Run ingestion" (fixes the previously-dead button).
-- **Pipeline**: refined table (generous row rhythm, avatar initials, hover), a
-  right-anchored summary card, and **segmented underline tabs** (dot + count) —
-  not default browser tabs.
-- **Detail is a right-side slide-over drawer**, not a full-page nav. For triaging
-  many candidates, staying in the tab context is faster; the drawer animates in
-  with a subtle backdrop. A full-page `/candidates/[id]` route reuses the same
-  panel for deep links.
-- 8px spacing rhythm; `max-w-7xl`; `focus-visible` ring for keyboard a11y; thin
-  scrollbars in scroll regions; minimal, purposeful motion only.
-- **Dark mode** is token-based (surfaces/text adapt; tier hues brightened).
+All three via `next/font` (Google). Distinct roles = not a single-font default.
 
-## States (designed, not afterthoughts)
+## Layout concept
 
-- Job with no candidates → prompt + inline "Run ingestion".
-- Empty tier tab → clear "No candidates in this tier," never a blank screen.
-- Ingestion / bulk send → button spinners; bulk send disables double-submit.
-- **Bulk result panel** distinguishes **failed** (clay, "needs attention," with
-  per-candidate reasons) from **skipped** (muted, "expected: not shortlisted /
-  already sent / wrong job") — they mean different things.
+- **Fixed left rail** — workspace nav (Jobs · New job; within a job: Pipeline ·
+  Settings). A cockpit pattern that differentiates structurally from the current
+  top-nav centered pages and matches "operator tool." Collapses to a top bar under
+  ~768px.
+- **Main surface** — panelled cards + a dense candidate table. The pipeline keeps its
+  tab + slide-over bones (reskinned), per the brief.
 
-## One product decision worth flagging
+## Self-critique vs the brief
 
-The spec says tabs are "backed by the `tier` query param," but the walkthrough
-requires that overriding an **AI-reject** candidate to **human-shortlist** makes
-it appear **in the Shortlist tab** (the send workspace). Those are in tension —
-strict AI-tier filtering would keep that candidate in the Reject tab only.
+- First instinct kept tiers in **teal/ochre/clay** (the current look) — **changed** to
+  green/gold/rose, and moved the human decision to a **separate blue/graphite/violet
+  family** so the two axes separate by *hue*, not just by badge shape.
+- First instinct reused a **top-nav centered** layout (current) — **changed** to a
+  fixed left rail so it reads as a tool, not a document.
+- Considered a single combined **"tier+status" chip** — **rejected**: it collapses the
+  two axes (violates the brief). The verdict track keeps them structurally separate.
+- Space Grotesk + Inter is a known SaaS pairing; **kept** because it is deliberate and
+  clearly off all three named defaults, with JetBrains Mono giving the numeric readout
+  its own voice.
 
-**Resolution:** the Shortlist tab is a **union** — AI-tier `shortlist` **plus**
-anyone with human status `shortlisted` (from any tier). The other tabs
-(Borderline / Reject / All) are pure tier views. Every row shows both badges, so
-an override reads as "Reject (AI) · Shortlisted (you)". The pipeline fetches the
-job's candidates once and derives the tabs client-side so counts and contents
-stay consistent (identical to what the server's `tier`/`status` filters return).
+## Quality floor (not announced in the UI)
+
+Responsive to mobile; a visible keyboard focus ring; `prefers-reduced-motion` honored
+(slide-over / track transitions gated); copy in sentence case, naming things by what
+the operator controls; empty and error states give direction in the tool's voice.
