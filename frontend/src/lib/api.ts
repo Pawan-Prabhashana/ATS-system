@@ -35,6 +35,9 @@ export interface Job {
   rubric: Rubric;
   status: JobStatus;
   google_sheet_id: string | null;
+  assignment_brief_filename: string | null;
+  assignment_deadline_days: number | null;
+  assignment_message: string | null;
   created_at: string;
 }
 
@@ -46,7 +49,10 @@ export interface JobCreatePayload {
   status?: JobStatus;
 }
 
-export type JobUpdatePayload = Partial<JobCreatePayload>;
+export type JobUpdatePayload = Partial<JobCreatePayload> & {
+  assignment_deadline_days?: number | null;
+  assignment_message?: string | null;
+};
 
 export interface IntakeProbeResult {
   connected: boolean;
@@ -129,6 +135,7 @@ export type SendOutcomeStatus =
   | "skipped_not_shortlisted"
   | "skipped_already_sent"
   | "skipped_wrong_job"
+  | "no_assignment_brief"
   | "not_found"
   | "failed"
   | "config_error";
@@ -199,6 +206,34 @@ export function closeJob(id: string): Promise<Job> {
   return request<Job>(`/jobs/${encodeURIComponent(id)}/close`, { method: "POST" });
 }
 
+// -- Assignment brief -------------------------------------------------------
+export function briefUrl(id: string): string {
+  return `${API_BASE}/jobs/${encodeURIComponent(id)}/assignment-brief`;
+}
+
+export async function uploadBrief(id: string, file: File): Promise<Job> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(briefUrl(id), { method: "POST", body: fd, cache: "no-store" });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const b = (await res.json()) as { detail?: string };
+      if (b?.detail) detail = b.detail;
+    } catch {
+      /* keep statusText */
+    }
+    throw new Error(`${res.status}: ${detail}`);
+  }
+  return (await res.json()) as Job;
+}
+
+export function deleteBrief(id: string): Promise<Job> {
+  return request<Job>(`/jobs/${encodeURIComponent(id)}/assignment-brief`, {
+    method: "DELETE",
+  });
+}
+
 export function testIntake(
   id: string,
   googleSheetId?: string | null,
@@ -248,10 +283,12 @@ export function getCandidate(id: string): Promise<CandidateDetail> {
   return request<CandidateDetail>(`/candidates/${encodeURIComponent(id)}`);
 }
 
+export type DecisionInput = Decision | "undecided";
+
 export function decideCandidate(
   id: string,
-  decision: Decision,
-  note: string | null,
+  decision: DecisionInput,
+  note: string | null = null,
 ): Promise<CandidateDetail> {
   return request<CandidateDetail>(
     `/candidates/${encodeURIComponent(id)}/decision`,

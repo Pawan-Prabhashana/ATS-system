@@ -26,14 +26,11 @@ export function CandidateDetail({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // A pending decision awaiting a note + confirm (from undecided, or via change).
   const [pending, setPending] = useState<Decision | null>(null);
   const [note, setNote] = useState("");
-  const [savingDecision, setSavingDecision] = useState(false);
-
-  const [assignConfirm, setAssignConfirm] = useState(false);
-  const [assignForce, setAssignForce] = useState(false);
-  const [assignBusy, setAssignBusy] = useState(false);
-  const [assignError, setAssignError] = useState<string | null>(null);
+  const [changing, setChanging] = useState(false); // "Change decision" expanded
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -53,36 +50,52 @@ export function CandidateDetail({
 
   function apply(updated: Detail) {
     setDetail(updated);
+    setPending(null);
+    setChanging(false);
+    setNote("");
     onChanged?.(updated);
   }
 
-  async function confirmDecision() {
+  async function confirmDecide() {
     if (!pending) return;
-    setSavingDecision(true);
+    setBusy(true);
     setError(null);
     try {
       apply(await decideCandidate(candidateId, pending, note.trim() || null));
-      setPending(null);
-      setNote("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save your decision. Try again.");
     } finally {
-      setSavingDecision(false);
+      setBusy(false);
     }
   }
 
-  async function confirmSend() {
-    setAssignBusy(true);
-    setAssignError(null);
+  async function undo() {
+    setBusy(true);
+    setError(null);
     try {
-      apply(await sendAssignment(candidateId, assignForce));
-      setAssignConfirm(false);
-      setAssignForce(false);
+      apply(await decideCandidate(candidateId, "undecided"));
     } catch (e) {
-      setAssignError(e instanceof Error ? e.message : "Couldn't send the assignment. Try again.");
+      setError(e instanceof Error ? e.message : "Couldn't clear the decision. Try again.");
     } finally {
-      setAssignBusy(false);
+      setBusy(false);
     }
+  }
+
+  async function send(force: boolean) {
+    setBusy(true);
+    setError(null);
+    try {
+      apply(await sendAssignment(candidateId, force));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't send the assignment. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openDecide(d: Decision) {
+    setPending(d);
+    setNote(detail?.candidate.reviewer_note ?? "");
   }
 
   const tier = detail?.evaluation?.recommendation ?? null;
@@ -101,9 +114,7 @@ export function CandidateDetail({
             {detail?.candidate.name ?? (loading ? "Loading…" : "Candidate")}
           </div>
           <div className="truncate text-sm text-muted">{detail?.candidate.email ?? " "}</div>
-          {detail?.job_title && (
-            <div className="mt-0.5 text-xs text-faint">{detail.job_title}</div>
-          )}
+          {detail?.job_title && <div className="mt-0.5 text-xs text-faint">{detail.job_title}</div>}
         </div>
         {detail && (
           <div className="flex flex-col items-end gap-2">
@@ -140,83 +151,43 @@ export function CandidateDetail({
           {error && <Banner>{error}</Banner>}
 
           {detail.evaluation && (
-            <div className="mb-6 flex items-start justify-between gap-4">
-              <div>
-                <Label>Overall score</Label>
-                <div className="mt-1 font-mono text-4xl font-semibold tracking-tight tabular-nums">
-                  {detail.evaluation.overall_score.toFixed(1)}
-                  <span className="ml-1 text-base font-normal text-faint">/100</span>
-                </div>
-                <p className="mt-2 max-w-md text-sm leading-relaxed text-muted">
-                  {detail.evaluation.summary}
-                </p>
-                <p className="mt-1.5 font-mono text-xs text-faint">
-                  {detail.evaluation.evaluated_by}
-                </p>
+            <div className="mb-6">
+              <Label>Overall score</Label>
+              <div className="mt-1 font-mono text-4xl font-semibold tracking-tight tabular-nums">
+                {detail.evaluation.overall_score.toFixed(1)}
+                <span className="ml-1 text-base font-normal text-faint">/100</span>
               </div>
+              <p className="mt-2 max-w-md text-sm leading-relaxed text-muted">{detail.evaluation.summary}</p>
+              <p className="mt-1.5 font-mono text-xs text-faint">{detail.evaluation.evaluated_by}</p>
             </div>
           )}
 
-          <DecisionGate
-            detail={detail}
-            pending={pending}
-            note={note}
-            saving={savingDecision}
-            onOpen={(d) => {
-              setPending(d);
-              setNote(detail.candidate.reviewer_note ?? "");
-            }}
-            onNote={setNote}
-            onConfirm={confirmDecision}
-            onCancel={() => {
-              setPending(null);
-              setNote("");
-            }}
-          />
-
-          {(detail.candidate.status === "shortlisted" ||
-            detail.candidate.status === "assignment_sent") && (
-            <div className="mt-4 rounded-xl border border-line bg-surface p-4">
-              <div className="flex items-center justify-between">
-                <Label>Assignment · one-off</Label>
-                {detail.candidate.status === "assignment_sent" && (
-                  <span className="font-mono text-xs text-faint">
-                    sent{" "}
-                    {detail.candidate.assignment_sent_count > 1
-                      ? `${detail.candidate.assignment_sent_count}×`
-                      : ""}{" "}
-                    · due {detail.candidate.assignment_deadline}
-                  </span>
-                )}
-              </div>
-              <p className="mt-1 mb-3 text-xs text-muted">
-                Send in a batch from the pipeline. Use this only for a single resend — a bounced email, say.
-              </p>
-              {assignError && <Banner>{assignError}</Banner>}
-              {!assignConfirm ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    setAssignForce(detail.candidate.status === "assignment_sent");
-                    setAssignConfirm(true);
-                    setAssignError(null);
-                  }}
-                >
-                  {detail.candidate.status === "assignment_sent" ? "Resend assignment" : "Send assignment"}
-                </Button>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <Button size="sm" loading={assignBusy} onClick={confirmSend}>
-                    Confirm {assignForce ? "resend" : "send"}
-                  </Button>
-                  <Button variant="ghost" size="sm" disabled={assignBusy} onClick={() => setAssignConfirm(false)}>
-                    Cancel
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
+          {/* Review panel — one state, not a permanent question */}
+          <div className="rounded-xl border border-line bg-surface p-4">
+            {pending !== null ? (
+              <NoteConfirm
+                decision={pending}
+                name={detail.candidate.name}
+                note={note}
+                busy={busy}
+                onNote={setNote}
+                onConfirm={confirmDecide}
+                onCancel={() => setPending(null)}
+              />
+            ) : (
+              <ReviewState
+                detail={detail}
+                busy={busy}
+                changing={changing}
+                onShortlist={() => openDecide("shortlist")}
+                onReject={() => openDecide("reject")}
+                onUndo={undo}
+                onSend={() => send(false)}
+                onResend={() => send(true)}
+                onToggleChange={() => setChanging((v) => !v)}
+              />
+            )}
+          </div>
 
           {detail.evaluation && detail.evaluation.criterion_scores.length > 0 && (
             <div className="mt-6">
@@ -232,14 +203,9 @@ export function CandidateDetail({
                       </div>
                     </div>
                     <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-surface-2">
-                      <div
-                        className="h-1 rounded-full"
-                        style={{ width: `${Math.max(0, Math.min(100, c.score))}%`, background: "var(--accent)" }}
-                      />
+                      <div className="h-1 rounded-full" style={{ width: `${Math.max(0, Math.min(100, c.score))}%`, background: "var(--accent)" }} />
                     </div>
-                    {c.evidence && (
-                      <p className="mt-2 text-[13px] leading-relaxed text-muted">{c.evidence}</p>
-                    )}
+                    {c.evidence && <p className="mt-2 text-[13px] leading-relaxed text-muted">{c.evidence}</p>}
                   </div>
                 ))}
               </div>
@@ -250,12 +216,7 @@ export function CandidateDetail({
             <div className="flex items-center justify-between">
               <Label>CV pages</Label>
               {detail.cv_url && (
-                <a
-                  href={mediaUrl(detail.cv_url)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-[var(--accent-ink)] hover:underline"
-                >
+                <a href={mediaUrl(detail.cv_url)} target="_blank" rel="noreferrer" className="text-xs text-[var(--accent-ink)] hover:underline">
                   Open PDF ↗
                 </a>
               )}
@@ -271,12 +232,7 @@ export function CandidateDetail({
               ) : (
                 detail.page_image_urls.map((url, i) => (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={url}
-                    src={mediaUrl(url)}
-                    alt={`Page ${i + 1}`}
-                    className="w-full rounded-xl border border-line"
-                  />
+                  <img key={url} src={mediaUrl(url)} alt={`Page ${i + 1}`} className="w-full rounded-xl border border-line" />
                 ))
               )}
             </div>
@@ -284,6 +240,156 @@ export function CandidateDetail({
           <div className="h-4" />
         </div>
       )}
+    </div>
+  );
+}
+
+function ReviewState({
+  detail,
+  busy,
+  changing,
+  onShortlist,
+  onReject,
+  onUndo,
+  onSend,
+  onResend,
+  onToggleChange,
+}: {
+  detail: Detail;
+  busy: boolean;
+  changing: boolean;
+  onShortlist: () => void;
+  onReject: () => void;
+  onUndo: () => void;
+  onSend: () => void;
+  onResend: () => void;
+  onToggleChange: () => void;
+}) {
+  const c = detail.candidate;
+
+  if (c.status === "scored" || c.status === "parsed") {
+    return (
+      <>
+        <Label>Decide</Label>
+        <div className="mt-2 flex gap-2">
+          <Button size="sm" onClick={onShortlist}>Shortlist</Button>
+          <Button size="sm" variant="danger" onClick={onReject}>Reject</Button>
+        </div>
+      </>
+    );
+  }
+
+  if (c.status === "shortlisted") {
+    return (
+      <>
+        <Confirmed color="var(--tier-shortlist)" label="Shortlisted" at={c.decided_at} note={c.reviewer_note} />
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button size="sm" loading={busy} onClick={onSend}>Send assignment</Button>
+          <Button size="sm" variant="ghost" onClick={onToggleChange}>Change decision</Button>
+        </div>
+        {changing && (
+          <div className="mt-2 flex gap-2">
+            <Button size="sm" variant="danger" onClick={onReject}>Reject instead</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={onUndo}>Set to undecided</Button>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  if (c.status === "assignment_sent") {
+    return (
+      <>
+        <Confirmed
+          color="var(--dec-sent)"
+          label={`Assignment sent${c.assignment_sent_count > 1 ? ` · ${c.assignment_sent_count}×` : ""}`}
+          at={c.assignment_sent_at}
+          note={null}
+        />
+        <p className="mt-1 text-xs text-muted">Due {formatDate(c.assignment_deadline)}.</p>
+        <div className="mt-3">
+          <Button size="sm" variant="ghost" loading={busy} onClick={onResend}>Resend</Button>
+        </div>
+      </>
+    );
+  }
+
+  // rejected
+  return (
+    <>
+      <Confirmed color="var(--tier-reject)" label="Rejected" at={c.decided_at} note={c.reviewer_note} />
+      <div className="mt-3">
+        <Button size="sm" variant="ghost" onClick={onToggleChange}>Change decision</Button>
+      </div>
+      {changing && (
+        <div className="mt-2 flex gap-2">
+          <Button size="sm" onClick={onShortlist}>Shortlist instead</Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onUndo}>Set to undecided</Button>
+        </div>
+      )}
+    </>
+  );
+}
+
+function Confirmed({
+  color,
+  label,
+  at,
+  note,
+}: {
+  color: string;
+  label: string;
+  at: string | null;
+  note: string | null;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <span className="inline-flex items-center gap-2 text-sm font-medium" style={{ color }}>
+          <span
+            className="inline-grid h-4 w-4 place-items-center rounded-full"
+            style={{ background: color }}
+          >
+            <svg viewBox="0 0 16 16" className="h-2.5 w-2.5" fill="none">
+              <path d="M4 8.4l2.6 2.6L12 5.4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          {label}
+        </span>
+        {at && <span className="font-mono text-xs text-faint">{formatDateTime(at)}</span>}
+      </div>
+      {note && <p className="mt-1.5 text-sm text-muted">“{note}”</p>}
+    </div>
+  );
+}
+
+function NoteConfirm({
+  decision,
+  name,
+  note,
+  busy,
+  onNote,
+  onConfirm,
+  onCancel,
+}: {
+  decision: Decision;
+  name: string | null;
+  note: string;
+  busy: boolean;
+  onNote: (v: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-sm text-muted">
+        {decision === "shortlist" ? "Shortlist" : "Reject"} {name ?? "this candidate"}?
+      </p>
+      <TextArea value={note} onChange={(e) => onNote(e.target.value)} rows={2} placeholder="Add a note (optional)" />
+      <div className="mt-2 flex gap-2">
+        <Button size="sm" loading={busy} onClick={onConfirm}>Confirm {decision}</Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>Cancel</Button>
+      </div>
     </div>
   );
 }
@@ -299,80 +405,6 @@ function Banner({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
-    </div>
-  );
-}
-
-function DecisionGate({
-  detail,
-  pending,
-  note,
-  saving,
-  onOpen,
-  onNote,
-  onConfirm,
-  onCancel,
-}: {
-  detail: Detail;
-  pending: Decision | null;
-  note: string;
-  saving: boolean;
-  onOpen: (d: Decision) => void;
-  onNote: (v: string) => void;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  const decided = detail.candidate.decided_at !== null;
-  return (
-    <div className="rounded-xl border border-line bg-surface p-4">
-      <div className="flex items-center justify-between">
-        <Label>{decided ? "Your decision" : "Decide"}</Label>
-        {decided && detail.candidate.decided_at && (
-          <span className="font-mono text-xs text-faint">
-            {formatDateTime(detail.candidate.decided_at)}
-          </span>
-        )}
-      </div>
-
-      {decided && detail.candidate.reviewer_note && (
-        <p className="mt-2 text-sm text-muted">“{detail.candidate.reviewer_note}”</p>
-      )}
-
-      {pending === null ? (
-        <div className="mt-3 flex gap-2">
-          <Button
-            size="sm"
-            variant={detail.candidate.status === "shortlisted" ? "primary" : "secondary"}
-            onClick={() => onOpen("shortlist")}
-          >
-            Shortlist
-          </Button>
-          <Button size="sm" variant="danger" onClick={() => onOpen("reject")}>
-            Reject
-          </Button>
-          {detail.candidate.status === "assignment_sent" && (
-            <span className="ml-auto self-center font-mono text-xs text-faint">
-              due {formatDate(detail.candidate.assignment_deadline)}
-            </span>
-          )}
-        </div>
-      ) : (
-        <div className="mt-3">
-          <p className="mb-2 text-sm text-muted">
-            {pending === "shortlist" ? "Shortlist" : "Reject"}{" "}
-            {detail.candidate.name ?? "this candidate"}?
-          </p>
-          <TextArea value={note} onChange={(e) => onNote(e.target.value)} rows={2} placeholder="Add a note (optional)" />
-          <div className="mt-2 flex gap-2">
-            <Button size="sm" loading={saving} onClick={onConfirm}>
-              Confirm {pending}
-            </Button>
-            <Button variant="ghost" size="sm" disabled={saving} onClick={onCancel}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

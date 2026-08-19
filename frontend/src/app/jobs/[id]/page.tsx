@@ -3,35 +3,29 @@
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  bulkSendAssignments,
   getJob,
   getJobSummary,
   ingestJob,
   listJobCandidates,
-  type BulkSendResult,
   type CandidateRecord,
   type Job,
   type JobSummary,
   type Recommendation,
 } from "@/lib/api";
-import {
-  DECISION_META,
-  TierBar,
-  TierChip,
-  TIER_META,
-  VerdictTrack,
-} from "@/components/verdict";
-import { Button, Card, Checkbox, Label, Spinner } from "@/components/ui";
+import { DECISION_META, TierBar, TIER_META, VerdictTrack } from "@/components/verdict";
+import { Button, Card, Label, Spinner } from "@/components/ui";
 import { SlideOver } from "@/components/SlideOver";
 import { CandidateDetail } from "@/components/CandidateDetail";
+import { SendAssignments } from "@/components/SendAssignments";
 import { initials } from "@/lib/format";
 
-type Tab = "shortlist" | "borderline" | "reject" | "all";
+type Tab = "all" | "shortlist" | "borderline" | "reject";
+// All first, and the default landing tab. Tabs filter PURELY by AI tier.
 const TABS: { key: Tab; label: string }[] = [
+  { key: "all", label: "All" },
   { key: "shortlist", label: "Shortlist" },
   { key: "borderline", label: "Borderline" },
   { key: "reject", label: "Reject" },
-  { key: "all", label: "All" },
 ];
 
 const scoreOf = (r: CandidateRecord) => r.evaluation?.overall_score ?? -1;
@@ -46,90 +40,52 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
   const [error, setError] = useState<string | null>(null);
   const [jdOpen, setJdOpen] = useState(false);
 
-  const [tab, setTab] = useState<Tab>("shortlist");
+  const [tab, setTab] = useState<Tab>("all");
   const [openId, setOpenId] = useState<string | null>(null);
-
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [force, setForce] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [bulkResult, setBulkResult] = useState<BulkSendResult | null>(null);
+  const [sendOpen, setSendOpen] = useState(false);
   const [ingesting, setIngesting] = useState(false);
-
-  const loadCandidates = useCallback(async () => {
-    const rows = await listJobCandidates(id);
-    setAll(rows);
-    return rows;
-  }, [id]);
 
   const refresh = useCallback(async () => {
     try {
-      const [, s] = await Promise.all([loadCandidates(), getJobSummary(id)]);
+      const [rows, s] = await Promise.all([listJobCandidates(id), getJobSummary(id)]);
+      setAll(rows);
       setSummary(s);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't refresh.");
     }
-  }, [id, loadCandidates]);
+  }, [id]);
 
   useEffect(() => {
     (async () => {
       setError(null);
       try {
-        const [j, s] = await Promise.all([getJob(id), getJobSummary(id)]);
+        const [j, s, rows] = await Promise.all([
+          getJob(id),
+          getJobSummary(id),
+          listJobCandidates(id),
+        ]);
         setJob(j);
         setSummary(s);
-        await loadCandidates();
+        setAll(rows);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Couldn't load this job.");
         setAll([]);
       }
     })();
-  }, [id, loadCandidates]);
+  }, [id]);
 
+  // Tab lists are strictly by AI tier — a candidate is in exactly one tier + All.
   const lists = useMemo(() => {
     const rows = all ?? [];
     const tier = (t: Recommendation) => rows.filter((r) => r.evaluation?.recommendation === t).sort(byScore);
-    // Shortlist tab = AI-shortlist ∪ anyone the human shortlisted (so an
-    // AI-reject you override to shortlist is still sendable here).
-    const shortlist = rows
-      .filter((r) => r.evaluation?.recommendation === "shortlist" || r.candidate.status === "shortlisted")
-      .sort(byScore);
-    return { shortlist, borderline: tier("borderline"), reject: tier("reject"), all: [...rows].sort(byScore) };
+    return {
+      all: [...rows].sort(byScore),
+      shortlist: tier("shortlist"),
+      borderline: tier("borderline"),
+      reject: tier("reject"),
+    };
   }, [all]);
-
   const rows = lists[tab];
-
-  useEffect(() => {
-    if (tab !== "shortlist") return;
-    setSelected(new Set(lists.shortlist.filter((r) => r.candidate.status === "shortlisted").map((r) => r.candidate.id)));
-  }, [tab, lists.shortlist]);
-
-  function toggle(cid: string) {
-    setSelected((s) => {
-      const n = new Set(s);
-      if (n.has(cid)) n.delete(cid);
-      else n.add(cid);
-      return n;
-    });
-  }
-  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.candidate.id));
-  function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.candidate.id)));
-  }
-
-  async function onBulkSend() {
-    setSending(true);
-    setBulkResult(null);
-    setError(null);
-    try {
-      const res = await bulkSendAssignments(id, [...selected], force);
-      setBulkResult(res);
-      await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Bulk send failed.");
-    } finally {
-      setSending(false);
-    }
-  }
 
   async function onIngest() {
     setIngesting(true);
@@ -145,6 +101,7 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
   }
 
   const connected = Boolean(job?.google_sheet_id);
+  const readyCount = summary?.by_status.shortlisted ?? 0;
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
@@ -170,10 +127,7 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
               className="inline-flex items-center gap-1.5"
               style={{ color: connected ? "var(--tier-shortlist)" : "var(--muted)" }}
             >
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ background: connected ? "var(--tier-shortlist)" : "var(--faint)" }}
-              />
+              <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: connected ? "var(--tier-shortlist)" : "var(--faint)" }} />
               {connected ? "Connected to a form" : "Not connected"}
             </span>
             <Link href={`/jobs/${id}/settings`} className="text-[var(--accent-ink)] hover:underline">
@@ -195,48 +149,45 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
         </div>
 
         {summary && (
-          <Card className="w-64 shrink-0 p-4">
-            <Label>Pipeline</Label>
-            <div className="mt-2">
-              <TierBar counts={summary.by_tier} total={summary.total} />
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-              <Stat label="Total" value={summary.total} />
-              <Stat label="Shortlisted" value={summary.by_status.shortlisted} />
-              <Stat label="Sent" value={summary.by_status.assignment_sent} />
-            </div>
-            <div className="mt-3 border-t border-line pt-3">
-              <Button size="sm" variant="secondary" loading={ingesting} onClick={onIngest} className="w-full">
-                Run ingestion
-              </Button>
-            </div>
-          </Card>
+          <div className="flex shrink-0 flex-col items-stretch gap-3">
+            <Button onClick={() => setSendOpen(true)}>
+              Send assignments{readyCount > 0 ? ` (${readyCount} ready)` : ""}
+            </Button>
+            <Card className="w-64 p-4">
+              <Label>Pipeline</Label>
+              <div className="mt-2">
+                <TierBar counts={summary.by_tier} total={summary.total} />
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                <Stat label="Total" value={summary.total} />
+                <Stat label="Shortlisted" value={summary.by_status.shortlisted} />
+                <Stat label="Sent" value={summary.by_status.assignment_sent} />
+              </div>
+              <div className="mt-3 border-t border-line pt-3">
+                <Button size="sm" variant="secondary" loading={ingesting} onClick={onIngest} className="w-full">
+                  Run ingestion
+                </Button>
+              </div>
+            </Card>
+          </div>
         )}
       </div>
 
       {error && (
-        <div
-          className="mt-4 rounded-lg px-3 py-2 text-sm"
-          style={{ color: "var(--tier-reject)", background: "var(--tier-reject-tint)" }}
-        >
+        <div className="mt-4 rounded-lg px-3 py-2 text-sm" style={{ color: "var(--tier-reject)", background: "var(--tier-reject-tint)" }}>
           {error}
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Tabs — AI tier only */}
       <div className="mt-6 flex items-center gap-1 overflow-x-auto border-b border-line">
         {TABS.map((t) => {
           const active = tab === t.key;
           return (
             <button
               key={t.key}
-              onClick={() => {
-                setTab(t.key);
-                setBulkResult(null);
-              }}
-              className={`relative -mb-px flex items-center gap-2 whitespace-nowrap px-3.5 py-2.5 text-sm font-medium transition-colors ${
-                active ? "text-ink" : "text-muted hover:text-ink"
-              }`}
+              onClick={() => setTab(t.key)}
+              className={`relative -mb-px flex items-center gap-2 whitespace-nowrap px-3.5 py-2.5 text-sm font-medium transition-colors ${active ? "text-ink" : "text-muted hover:text-ink"}`}
             >
               {t.key !== "all" && (
                 <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: TIER_META[t.key as Recommendation].color }} />
@@ -250,31 +201,6 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
           );
         })}
       </div>
-
-      {/* Shortlist bulk bar */}
-      {tab === "shortlist" && (
-        <div className="mt-4">
-          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3">
-            <div className="text-sm">
-              <span className="font-mono font-semibold">{selected.size}</span>
-              <span className="text-muted"> selected</span>
-            </div>
-            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted">
-              <Checkbox checked={force} onChange={setForce} aria-label="Resend already-sent" />
-              Resend already-sent
-            </label>
-            <div className="ml-auto">
-              <Button size="sm" loading={sending} disabled={selected.size === 0} onClick={onBulkSend}>
-                Send assignment to selected ({selected.size})
-              </Button>
-            </div>
-          </div>
-          <p className="mt-1.5 px-1 text-xs text-faint">
-            Everyone the AI shortlisted, plus anyone you shortlisted. Defaults to your shortlist — deselect to skip.
-          </p>
-          {bulkResult && <BulkResultPanel result={bulkResult} onDismiss={() => setBulkResult(null)} />}
-        </div>
-      )}
 
       {/* List */}
       <div className="mt-4">
@@ -298,21 +224,8 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
           </Card>
         ) : (
           <Card className="divide-y divide-line overflow-hidden">
-            {tab === "shortlist" && (
-              <div className="flex items-center gap-3 bg-surface-2/50 px-4 py-2 text-xs text-muted">
-                <Checkbox checked={allSelected} indeterminate={!allSelected && selected.size > 0} onChange={toggleAll} aria-label="Select all in view" />
-                <span>Select all in view</span>
-              </div>
-            )}
             {rows.map((r) => (
-              <Row
-                key={r.candidate.id}
-                r={r}
-                selectable={tab === "shortlist"}
-                selected={selected.has(r.candidate.id)}
-                onToggle={() => toggle(r.candidate.id)}
-                onOpen={() => setOpenId(r.candidate.id)}
-              />
+              <Row key={r.candidate.id} r={r} onOpen={() => setOpenId(r.candidate.id)} />
             ))}
           </Card>
         )}
@@ -320,6 +233,10 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
 
       <SlideOver open={openId !== null} onClose={() => setOpenId(null)}>
         {openId && <CandidateDetail candidateId={openId} onClose={() => setOpenId(null)} onChanged={() => void refresh()} />}
+      </SlideOver>
+
+      <SlideOver open={sendOpen} onClose={() => setSendOpen(false)}>
+        {sendOpen && <SendAssignments jobId={id} onClose={() => setSendOpen(false)} onChanged={() => void refresh()} />}
       </SlideOver>
     </div>
   );
@@ -334,29 +251,12 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function Row({
-  r,
-  selectable,
-  selected,
-  onToggle,
-  onOpen,
-}: {
-  r: CandidateRecord;
-  selectable: boolean;
-  selected: boolean;
-  onToggle: () => void;
-  onOpen: () => void;
-}) {
+function Row({ r, onOpen }: { r: CandidateRecord; onOpen: () => void }) {
   const c = r.candidate;
   const tier = r.evaluation?.recommendation ?? null;
   const dec = DECISION_META[c.status];
   return (
     <div onClick={onOpen} className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-2/50">
-      {selectable && (
-        <div onClick={(e) => e.stopPropagation()}>
-          <Checkbox checked={selected} onChange={onToggle} aria-label={`Select ${c.name ?? "candidate"}`} />
-        </div>
-      )}
       <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface-2 font-mono text-xs font-medium text-muted">
         {initials(c.name)}
       </div>
@@ -367,62 +267,18 @@ function Row({
       <div className="hidden w-12 shrink-0 text-right font-mono text-sm tabular-nums sm:block">
         {r.evaluation ? r.evaluation.overall_score.toFixed(1) : "—"}
       </div>
-      {/* the two-axis signal: AI tier word · verdict track · your decision word */}
       <div className="flex shrink-0 items-center gap-2.5">
-        <span
-          className="hidden w-16 text-right text-xs font-medium md:inline"
-          style={{ color: tier ? TIER_META[tier].color : "var(--faint)" }}
-        >
+        <span className="hidden w-16 text-right text-xs font-medium md:inline" style={{ color: tier ? TIER_META[tier].color : "var(--faint)" }}>
           {tier ? TIER_META[tier].label : "Unscored"}
         </span>
         <VerdictTrack tier={tier} status={c.status} />
-        <span
-          className="w-28 text-xs font-medium"
-          style={{ color: dec.kind === "undecided" ? "var(--muted)" : dec.color }}
-        >
+        <span className="w-28 text-xs font-medium" style={{ color: dec.kind === "undecided" ? "var(--muted)" : dec.color }}>
           {dec.label}
         </span>
       </div>
       <svg viewBox="0 0 16 16" className="h-4 w-4 shrink-0 text-faint" fill="none">
         <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
-    </div>
-  );
-}
-
-function BulkResultPanel({ result, onDismiss }: { result: BulkSendResult; onDismiss: () => void }) {
-  return (
-    <div className="mt-3 rounded-xl border border-line bg-surface p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4 text-sm">
-          <span>
-            <span className="font-mono font-semibold" style={{ color: "var(--tier-shortlist)" }}>{result.sent_count}</span> sent
-          </span>
-          <span className="text-muted">
-            <span className="font-mono font-semibold">{result.skipped_count}</span> skipped
-          </span>
-          <span style={{ color: result.failed_count ? "var(--tier-reject)" : undefined }}>
-            <span className="font-mono font-semibold">{result.failed_count}</span> failed
-          </span>
-          <span className="font-mono text-faint">· {result.requested_count} requested</span>
-        </div>
-        <button onClick={onDismiss} className="text-xs text-muted hover:text-ink">
-          Dismiss
-        </button>
-      </div>
-      {result.failed_count > 0 && (
-        <div className="mt-3 rounded-lg p-2.5 text-xs" style={{ background: "var(--tier-reject-tint)", color: "var(--tier-reject)" }}>
-          <div className="mb-1 font-medium">Failed — needs attention</div>
-          <ul className="space-y-0.5">
-            {result.failed.map((o) => (
-              <li key={o.candidate_id} className="font-mono">{o.candidate_id.slice(0, 8)} — {o.detail ?? o.status}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {result.skipped_count > 0 && (
-        <p className="mt-2 text-xs text-muted">Skipped is expected — not shortlisted, already sent, or not in this job.</p>
-      )}
     </div>
   );
 }
