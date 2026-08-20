@@ -75,6 +75,13 @@ DATA_DIR = Path(os.getenv("CATALIST_DATA_DIR", BACKEND_ROOT / "data"))
 DEFAULT_CANDIDATE_STORE_PATH = DATA_DIR / "candidates.json"
 DEFAULT_JOB_STORE_PATH = DATA_DIR / "jobs.json"
 
+# Which persistence backend the store factory hands out: "json" (local JSON
+# files, default — keeps the offline suite byte-for-byte) or "postgres" (any
+# Postgres via DATABASE_URL, e.g. Supabase). Read at call time so deployments
+# flip it via env without a code change; the SQL layer is only imported when
+# selected.
+DEFAULT_STORE_BACKEND = "json"
+
 
 # --------------------------------------------------------------------------- #
 # Email / assignment dispatch (Phase 5)
@@ -119,6 +126,21 @@ def get_candidate_store_path() -> Path:
 def get_job_store_path() -> Path:
     override = os.getenv("CATALIST_JOB_STORE_PATH")
     return Path(override) if override else DEFAULT_JOB_STORE_PATH
+
+
+def get_store_backend() -> str:
+    return os.getenv("STORE_BACKEND", DEFAULT_STORE_BACKEND).strip().lower()
+
+
+def get_database_url() -> str | None:
+    """Return the SQLAlchemy connection URL, or None if unset.
+
+    Read at call time (never at import) — the same lazy pattern as every other
+    credential. When ``STORE_BACKEND=postgres`` but this is missing, the DB layer
+    raises a clear config error on first use rather than crashing at import.
+    """
+    raw = (os.getenv("DATABASE_URL") or "").strip()
+    return raw or None
 
 
 def get_google_sheet_id() -> str | None:

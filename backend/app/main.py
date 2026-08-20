@@ -25,6 +25,19 @@ def _cors_origins() -> list[str]:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    # On the Postgres backend, ensure the schema exists before anything reads
+    # or writes it (idempotent create_all). Fires only when an ASGI server runs
+    # the lifespan — NOT on a bare TestClient(app) instantiation.
+    try:
+        from app.config import get_store_backend
+
+        if get_store_backend() == "postgres":
+            from app.db.engine import create_all
+
+            create_all()
+    except Exception as exc:  # pragma: no cover - startup convenience only
+        print(f"[startup] schema bootstrap skipped: {exc}")
+
     # Seed the sample jobs on real server start if the job store is empty. This
     # fires only when an ASGI server runs the lifespan — NOT on a bare
     # TestClient(app) instantiation — so tests manage their own job stores.

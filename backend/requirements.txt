@@ -7,6 +7,15 @@ pdfplumber>=0.11          # text extraction
 pdf2image>=1.17           # page -> PNG rendering (needs system poppler-utils)
 anthropic>=0.40           # native Anthropic evaluator (EVALUATOR_MODE=anthropic)
 
+# --- Persistence: Postgres store (STORE_BACKEND=postgres only) ---
+# Plain SQLAlchemy so any Postgres works via DATABASE_URL (e.g. Supabase). The
+# JSON stores stay the default, so the offline suite needs neither of these at
+# runtime — the SQL layer is lazy-imported by the factory. Tests exercise the
+# SQL impls against in-memory SQLite (bundled with Python), so only SQLAlchemy
+# is required to run them; psycopg2 is only needed to talk to a real Postgres.
+SQLAlchemy>=2.0
+psycopg2-binary>=2.9        # driver for postgresql+psycopg2:// (Supabase, etc.)
+
 # --- Intake: Google Sheets + Drive (INTAKE_MODE=google only) ---
 # Lazy-imported inside app/intake/google_forms.py — the offline default
 # (INTAKE_MODE=local) and the test suite do not require these to be installed.
