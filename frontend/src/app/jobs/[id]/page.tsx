@@ -153,7 +153,7 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
             <Button onClick={() => setSendOpen(true)}>
               Send assignments{readyCount > 0 ? ` (${readyCount} ready)` : ""}
             </Button>
-            <Card className="w-64 p-4">
+            <Card className="w-72 p-4">
               <Label>Pipeline</Label>
               <div className="mt-2">
                 <TierBar counts={summary.by_tier} total={summary.total} />
@@ -232,7 +232,17 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
       </div>
 
       <SlideOver open={openId !== null} onClose={() => setOpenId(null)}>
-        {openId && <CandidateDetail candidateId={openId} onClose={() => setOpenId(null)} onChanged={() => void refresh()} />}
+        {openId && (
+          <CandidateDetail
+            candidateId={openId}
+            onClose={() => setOpenId(null)}
+            onChanged={() => void refresh()}
+            onOpenSend={() => {
+              setOpenId(null);
+              setSendOpen(true);
+            }}
+          />
+        )}
       </SlideOver>
 
       <SlideOver open={sendOpen} onClose={() => setSendOpen(false)}>
@@ -244,9 +254,11 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg bg-surface-2 py-1.5">
+    <div className="min-w-0 rounded-lg bg-surface-2 px-1 py-1.5">
       <div className="font-mono text-base font-semibold tabular-nums">{value}</div>
-      <div className="text-[10px] uppercase tracking-wide text-faint">{label}</div>
+      <div className="truncate text-[9px] font-medium uppercase leading-tight tracking-[0.02em] text-faint">
+        {label}
+      </div>
     </div>
   );
 }

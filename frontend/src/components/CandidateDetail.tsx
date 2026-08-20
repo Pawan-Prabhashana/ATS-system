@@ -4,10 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import {
   decideCandidate,
   getCandidate,
+  getJob,
   mediaUrl,
   sendAssignment,
   type CandidateDetail as Detail,
   type Decision,
+  type Job,
 } from "@/lib/api";
 import { DecisionChip, TierChip, VerdictTrack } from "@/components/verdict";
 import { Button, Label, Spinner, TextArea } from "@/components/ui";
@@ -17,12 +19,17 @@ export function CandidateDetail({
   candidateId,
   onClose,
   onChanged,
+  onOpenSend,
 }: {
   candidateId: string;
   onClose?: () => void;
   onChanged?: (detail: Detail) => void;
+  // Called instead of a single send when the job has no assignment brief yet,
+  // so the reviewer lands in the send surface to upload one.
+  onOpenSend?: () => void;
 }) {
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,7 +43,12 @@ export function CandidateDetail({
     setLoading(true);
     setError(null);
     try {
-      setDetail(await getCandidate(candidateId));
+      const d = await getCandidate(candidateId);
+      setDetail(d);
+      if (d.job_id) {
+        // Load the job so we know whether an assignment brief exists.
+        getJob(d.job_id).then(setJob).catch(() => setJob(null));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load this candidate. Try again.");
     } finally {
@@ -96,6 +108,20 @@ export function CandidateDetail({
   function openDecide(d: Decision) {
     setPending(d);
     setNote(detail?.candidate.reviewer_note ?? "");
+  }
+
+  const hasBrief = Boolean(job?.assignment_brief_filename);
+
+  // Single send needs the job's brief. Without one, open the send surface (where
+  // it can be uploaded) rather than firing a request that 409s.
+  function requestSend(force: boolean) {
+    if (hasBrief) {
+      void send(force);
+    } else if (onOpenSend) {
+      onOpenSend();
+    } else {
+      setError("Upload an assignment brief in Send assignments before sending.");
+    }
   }
 
   const tier = detail?.evaluation?.recommendation ?? null;
@@ -179,11 +205,12 @@ export function CandidateDetail({
                 detail={detail}
                 busy={busy}
                 changing={changing}
+                hasBrief={hasBrief}
                 onShortlist={() => openDecide("shortlist")}
                 onReject={() => openDecide("reject")}
                 onUndo={undo}
-                onSend={() => send(false)}
-                onResend={() => send(true)}
+                onSend={() => requestSend(false)}
+                onResend={() => requestSend(true)}
                 onToggleChange={() => setChanging((v) => !v)}
               />
             )}
@@ -248,6 +275,7 @@ function ReviewState({
   detail,
   busy,
   changing,
+  hasBrief,
   onShortlist,
   onReject,
   onUndo,
@@ -258,6 +286,7 @@ function ReviewState({
   detail: Detail;
   busy: boolean;
   changing: boolean;
+  hasBrief: boolean;
   onShortlist: () => void;
   onReject: () => void;
   onUndo: () => void;
@@ -284,9 +313,16 @@ function ReviewState({
       <>
         <Confirmed color="var(--tier-shortlist)" label="Shortlisted" at={c.decided_at} note={c.reviewer_note} />
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button size="sm" loading={busy} onClick={onSend}>Send assignment</Button>
+          <Button size="sm" loading={busy} onClick={onSend}>
+            {hasBrief ? "Send assignment" : "Set up assignment"}
+          </Button>
           <Button size="sm" variant="ghost" onClick={onToggleChange}>Change decision</Button>
         </div>
+        {!hasBrief && (
+          <p className="mt-2 text-xs" style={{ color: "var(--tier-borderline)" }}>
+            No assignment brief yet — you&apos;ll upload one in Send assignments.
+          </p>
+        )}
         {changing && (
           <div className="mt-2 flex gap-2">
             <Button size="sm" variant="danger" onClick={onReject}>Reject instead</Button>
