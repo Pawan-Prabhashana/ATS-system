@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ValidationError
 
 from app.email.factory import get_email_sender
+from app.intake.errors import IntakeError
 from app.models import (
     Candidate,
     CandidateStatus,
@@ -183,9 +184,17 @@ def ingest_job(job_id: str) -> IngestionSummary:
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
     source = build_intake_source_for_job(job)
-    return run_ingestion(
-        job.job_description, job.rubric, job_id=job_id, intake_source=source
-    )
+    try:
+        return run_ingestion(
+            job.job_description, job.rubric, job_id=job_id, intake_source=source
+        )
+    except IntakeError as exc:
+        # Reading the intake source failed (e.g. the Google Sheet/Drive API is
+        # disabled or not shared). Surface the reason instead of a raw 500 so the
+        # reviewer sees something actionable.
+        raise HTTPException(
+            status_code=502, detail=f"Couldn't read this job's applications: {exc}"
+        ) from exc
 
 
 class IntakeProbeResult(BaseModel):

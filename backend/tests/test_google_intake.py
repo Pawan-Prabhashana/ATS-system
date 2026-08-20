@@ -134,6 +134,22 @@ def test_test_intake_unknown_job_404(job_store):
     assert client.post("/jobs/nope/test-intake").status_code == 404
 
 
+def test_ingest_google_read_failure_is_502_not_500(job_store, tmp_path, monkeypatch):
+    # A Google-connected job whose Sheet read fails (API disabled, not shared…)
+    # must surface a clean, actionable error, never a raw 500.
+    monkeypatch.setenv("CATALIST_CANDIDATE_STORE_PATH", str(tmp_path / "candidates.json"))
+
+    def boom(self):
+        raise IntakeConfigError("Google Sheets API is disabled for this project.")
+
+    monkeypatch.setattr(GoogleFormsIntakeSource, "_build_clients", boom)
+    jid = _make_job(google_sheet_id="SHEET-A")
+
+    resp = client.post(f"/jobs/{jid}/ingest")
+    assert resp.status_code == 502
+    assert "Sheets API is disabled" in resp.json()["detail"]
+
+
 def test_probe_empty_sheet_is_connected_zero_rows(monkeypatch):
     monkeypatch.setattr(
         GoogleFormsIntakeSource,
