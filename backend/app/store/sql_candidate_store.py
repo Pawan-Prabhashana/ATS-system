@@ -163,6 +163,30 @@ class SQLCandidateStore:
             row.cv_file = cv_file
             row.page_image_files = list(page_image_files or [])
 
+    def put_record(self, record: CandidateRecord) -> None:
+        """Persist a full stored record verbatim (insert or replace by id).
+
+        Not part of the repository protocol — used by the JSON->Postgres importer
+        to carry over fields the protocol ``upsert`` would recompute from a
+        ``parsed_cv`` it no longer has (page_count, text_extraction_quality,
+        parsed_artifacts_dir).
+        """
+        with self._scope() as s:
+            row = s.get(CandidateRow, record.candidate.id)
+            if row is None:
+                row = CandidateRow()
+                s.add(row)
+            _apply_candidate(row, record.candidate)
+            row.evaluation = (
+                record.evaluation.model_dump(mode="json") if record.evaluation else None
+            )
+            row.parsed_artifacts_dir = record.parsed_artifacts_dir
+            row.page_count = record.page_count
+            row.text_extraction_quality = record.text_extraction_quality
+            row.artifact_dir = record.artifact_dir
+            row.cv_file = record.cv_file
+            row.page_image_files = list(record.page_image_files or [])
+
     def update_status(self, candidate_id: str, status: CandidateStatus) -> None:
         with self._scope() as s:
             row = s.get(CandidateRow, candidate_id)

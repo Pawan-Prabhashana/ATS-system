@@ -19,8 +19,9 @@ retained assignment-email capability. It runs **fully offline by default**
 evaluators, Google intake, and Resend email are opt-in, and the test suite never
 makes a live call. See
 [OpenRouter / going live](#openrouter--going-live),
-[Anthropic / going live](#anthropic--going-live), and
-[Google intake / going live](#google-intake--going-live).
+[Anthropic / going live](#anthropic--going-live),
+[Google intake / going live](#google-intake--going-live), and
+[Database (Supabase Postgres)](#database-supabase-postgres).
 
 ---
 
@@ -440,6 +441,8 @@ Environment variables (see `app/config.py`):
 | `CATALIST_CANDIDATE_STORE_PATH` | `backend/data/candidates.json` | JSON candidate store location |
 | `CATALIST_JOB_STORE_PATH` | `backend/data/jobs.json` | JSON job store location |
 | `CATALIST_DATA_DIR` | `backend/data` | Local working-data directory |
+| `STORE_BACKEND` | `json` | `json` (local files) or `postgres` (any Postgres via `DATABASE_URL`) |
+| `DATABASE_URL` | _(unset)_ | SQLAlchemy URL; required only when `STORE_BACKEND=postgres` |
 | `EMAIL_MODE` | `mock` | `mock` (writes to outbox) or `resend` (real send) |
 | `RESEND_API_KEY` | _(unset)_ | Required only when `EMAIL_MODE=resend` |
 | `RESEND_FROM_EMAIL` | _(unset)_ | Verified sender address (resend mode) |
@@ -551,6 +554,114 @@ RUN_LIVE_SMOKE=1 ANTHROPIC_API_KEY=sk-ant-... pytest -k live_smoke
 
 > **All other tests never go live.** Both real evaluators are covered fully
 > offline by stubbing their httpx traffic with `respx`.
+
+---
+
+## Database (Supabase Postgres)
+
+By default both stores are local JSON files (`STORE_BACKEND=json`) — zero setup,
+and what the offline test suite runs against. To persist jobs + candidates in
+Postgres instead (e.g. so data survives redeploys, or is shared across
+instances), point `STORE_BACKEND=postgres` at any Postgres via `DATABASE_URL`.
+It's plain SQLAlchemy behind the existing repository protocols — [Supabase](https://supabase.com)
+is just a convenient managed Postgres; nothing here is Supabase-specific.
+
+Only the **structured records** (jobs, candidates, evaluations) move to Postgres.
+The CV PDFs and rendered page images stay on the local filesystem under
+`backend/data/candidates/{id}/` and are still served from there. (Moving those
+blobs to object storage such as Supabase Storage is future work.)
+
+1. **Create a project** at <https://supabase.com> → *New project*. Pick a region
+   and a database password (save it — it's in the connection string).
+
+2. **Get the connection string.** In the project, click **Connect** (top bar) →
+   *ORMs* / *Connection string*. You'll see two forms — pick based on your
+   network (see the IPv4/IPv6 note below). Convert it to the SQLAlchemy
+   psycopg2 form by using the `postgresql+psycopg2://` scheme:
+
+   ```
+   postgresql+psycopg2://<user>:<password>@<host>:5432/postgres
+   ```
+
+   > **IPv4 vs IPv6 — which host to use.** The **direct connection** (host
+   > `db.<project-ref>.supabase.co`, port `5432`) is meant for persistent
+   > servers like this backend, but it is **IPv6-only** unless you've bought the
+   > IPv4 add-on. On an IPv4-only network it will fail to resolve/connect. In
+   > that case use the **Session pooler** string instead: a different host
+   > (`aws-0-<region>.pooler.supabase.com`), still port `5432`, and the username
+   > becomes `postgres.<project-ref>`. Rule of thumb: **try the direct
+   > connection first; if you get a hostname/connection error, switch to the
+   > Session pooler string.** (The *Transaction* pooler on port `6543` is for
+   > serverless/edge and is not needed here.)
+
+3. **Configure the backend** (venv activated):
+
+   ```bash
+   export STORE_BACKEND=postgres
+   export DATABASE_URL='postgresql+psycopg2://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres'
+   ```
+
+4. **Create the schema** (idempotent — safe to re-run):
+
+   ```bash
+   python -m app.db.init
+   ```
+
+5. **(Optional) carry over existing JSON data** into Postgres — jobs +
+   candidates from `backend/data/*.json`. Idempotent (re-running skips rows
+   already present):
+
+   ```bash
+   python -m app.db.migrate_from_json
+   ```
+
+6. **Restart the backend.** On startup with `STORE_BACKEND=postgres` it runs
+   `create_all()` (so step 4 is optional if you just want the tables) and seeds
+   the sample jobs if the table is empty.
+
+**How it fails, on purpose:** `STORE_BACKEND=postgres` with `DATABASE_URL`
+unset raises a clear `DatabaseConfigError` on **first DB use** (never at import),
+naming the missing variable — the same lazy-credential pattern as the evaluators.
+
+> **Free-tier realities.** Supabase's free tier has **no automatic backups**, and
+> a project **pauses after ~a week of inactivity** — if connections start
+> failing, open the dashboard to wake it before use. The pool uses
+> `pool_pre_ping` so a *single* dropped idle connection is replaced
+> transparently, but a fully paused project still needs waking.
+
+> **Migrations are `create_all`, not Alembic.** The schema is additive and
+> bootstrapped with `metadata.create_all()`. Versioned migrations (Alembic) are
+> future work.
+
+> **Tests never touch Postgres.** The suite runs the SQL stores against
+> in-memory SQLite (see `tests/test_store_parity.py`) — same behavioral
+> assertions as the JSON store, no `DATABASE_URL`, no network. `STORE_BACKEND`
+> unset keeps the whole suite on the JSON default.
+
+### Verifying persistence (manual)
+
+Prove the round-trip end to end — data written under Postgres survives a backend
+restart (the whole point of this phase). Run on a **free port** so nothing on
+`:3000`/`:8000` is disturbed:
+
+```bash
+cd backend && source .venv/bin/activate
+export STORE_BACKEND=postgres
+export DATABASE_URL='postgresql+psycopg2://…'   # your string (direct or pooler)
+
+python -m app.db.init                            # 1. create tables
+python -m app.db.migrate_from_json               # 2. (optional) bring existing data over
+uvicorn app.main:app --port 8010                 # 3. start the backend on a free port
+```
+
+Then, in the app (or via `curl`):
+
+4. Create/ingest a job and let it score a candidate or two.
+5. In the **Supabase dashboard → Table editor**, open the `jobs` and
+   `candidates` tables and confirm the rows are there.
+6. **Stop the backend** (Ctrl-C) and **start it again** with the same env.
+7. Reload the app / re-query — the jobs and candidates are **still there**
+   (they came from Postgres, not a local file). That's the persistence proof.
 
 ---
 
