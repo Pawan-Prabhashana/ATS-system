@@ -20,6 +20,7 @@ import httpx
 from app.config import (
     get_resend_api_key,
     get_resend_from_email,
+    get_resend_reply_to,
     settings,
 )
 from app.email.base import EmailMessage, EmailSendResult
@@ -99,6 +100,10 @@ class ResendEmailSender:
             "subject": message.subject,
             "html": message.html_body,
         }
+        # Optional Reply-To so replies land in a real inbox, not the from-address.
+        reply_to = get_resend_reply_to()
+        if reply_to:
+            payload["reply_to"] = reply_to
         if attachments:
             payload["attachments"] = attachments
         if message.metadata:

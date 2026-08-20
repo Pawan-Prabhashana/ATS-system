@@ -1,6 +1,7 @@
 """Phase 5: assignment email dispatch (offline — mock outbox + stubbed Resend)."""
 from __future__ import annotations
 
+import base64
 import json
 from datetime import date, timedelta
 from pathlib import Path
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.email import (
+    EmailAttachment,
     EmailConfigError,
     EmailMessage,
     EmailSendResult,
@@ -86,17 +88,72 @@ def test_resend_send_without_key_raises_config_error(monkeypatch):
         ResendEmailSender().send(msg)
 
 
+def _sent_payload(route) -> dict:
+    """Decode the JSON body the sender POSTed to Resend."""
+    return json.loads(route.calls.last.request.content)
+
+
 @respx.mock
-def test_resend_send_success(monkeypatch):
+def test_resend_send_success_payload_shape(monkeypatch):
     monkeypatch.setenv("RESEND_API_KEY", "re_test_notreal")
     monkeypatch.setenv("RESEND_FROM_EMAIL", "hire@catalist.dev")
+    monkeypatch.delenv("RESEND_REPLY_TO", raising=False)
     route = respx.post("https://api.resend.com/emails").mock(
         return_value=httpx.Response(200, json={"id": "re_123"})
     )
     msg = EmailMessage(to="a@b.com", to_name="A", subject="s", html_body="<p>x</p>")
     result = ResendEmailSender().send(msg)
+
     assert route.call_count == 1
     assert result.success and result.provider_message_id == "re_123"
+
+    payload = _sent_payload(route)
+    assert payload["from"] == "hire@catalist.dev"  # from = RESEND_FROM_EMAIL
+    assert payload["to"] == ["A <a@b.com>"]
+    assert payload["subject"] == "s"
+    assert payload["html"] == "<p>x</p>"
+    assert "reply_to" not in payload  # absent unless RESEND_REPLY_TO is set
+
+
+@respx.mock
+def test_resend_attachment_content_is_base64_of_source_bytes(monkeypatch, tmp_path):
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_notreal")
+    monkeypatch.setenv("RESEND_FROM_EMAIL", "hire@catalist.dev")
+    route = respx.post("https://api.resend.com/emails").mock(
+        return_value=httpx.Response(200, json={"id": "re_att"})
+    )
+    pdf_bytes = b"%PDF-1.4\nfake brief bytes \x00\x01\x02 end"
+    brief = tmp_path / "assignment_brief.pdf"
+    brief.write_bytes(pdf_bytes)
+    msg = EmailMessage(
+        to="a@b.com",
+        subject="s",
+        html_body="<p>x</p>",
+        attachments=[EmailAttachment(filename="assignment_brief.pdf", path=str(brief))],
+    )
+
+    result = ResendEmailSender().send(msg)
+    assert result.success
+
+    attachments = _sent_payload(route)["attachments"]
+    assert len(attachments) == 1
+    assert attachments[0]["filename"] == "assignment_brief.pdf"
+    # content is a base64 STRING that decodes back to the exact source PDF bytes.
+    decoded = base64.b64decode(attachments[0]["content"])
+    assert decoded == pdf_bytes
+
+
+@respx.mock
+def test_resend_reply_to_present_only_when_set(monkeypatch):
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_notreal")
+    monkeypatch.setenv("RESEND_FROM_EMAIL", "hire@catalist.dev")
+    monkeypatch.setenv("RESEND_REPLY_TO", "talent@catalist.dev")
+    route = respx.post("https://api.resend.com/emails").mock(
+        return_value=httpx.Response(200, json={"id": "re_reply"})
+    )
+    msg = EmailMessage(to="a@b.com", subject="s", html_body="<p>x</p>")
+    ResendEmailSender().send(msg)
+    assert _sent_payload(route)["reply_to"] == "talent@catalist.dev"
 
 
 @respx.mock
@@ -109,7 +166,9 @@ def test_resend_send_api_error_is_wrapped_not_raised(monkeypatch):
     msg = EmailMessage(to="bad", subject="s", html_body="<p>x</p>")
     result = ResendEmailSender().send(msg)
     assert result.success is False
+    # Resend's status + message are surfaced in the typed failure.
     assert "422" in (result.error or "")
+    assert "invalid recipient" in (result.error or "")
 
 
 # --------------------------------------------------------------------------- #

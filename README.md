@@ -20,8 +20,9 @@ evaluators, Google intake, and Resend email are opt-in, and the test suite never
 makes a live call. See
 [OpenRouter / going live](#openrouter--going-live),
 [Anthropic / going live](#anthropic--going-live),
-[Google intake / going live](#google-intake--going-live), and
-[Database (Supabase Postgres)](#database-supabase-postgres).
+[Google intake / going live](#google-intake--going-live),
+[Database (Supabase Postgres)](#database-supabase-postgres), and
+[Sending real email (Resend)](#sending-real-email-resend).
 
 ---
 
@@ -445,7 +446,8 @@ Environment variables (see `app/config.py`):
 | `DATABASE_URL` | _(unset)_ | SQLAlchemy URL; required only when `STORE_BACKEND=postgres` |
 | `EMAIL_MODE` | `mock` | `mock` (writes to outbox) or `resend` (real send) |
 | `RESEND_API_KEY` | _(unset)_ | Required only when `EMAIL_MODE=resend` |
-| `RESEND_FROM_EMAIL` | _(unset)_ | Verified sender address (resend mode) |
+| `RESEND_FROM_EMAIL` | _(unset)_ | Sender address (resend mode); must be on a verified domain to reach real inboxes |
+| `RESEND_REPLY_TO` | _(unset)_ | Optional Reply-To so candidate replies reach a real inbox |
 | `ASSIGNMENT_DEADLINE_DAYS` | `5` | Days from send until the assignment deadline |
 
 ---
@@ -662,6 +664,72 @@ Then, in the app (or via `curl`):
 6. **Stop the backend** (Ctrl-C) and **start it again** with the same env.
 7. Reload the app / re-query — the jobs and candidates are **still there**
    (they came from Postgres, not a local file). That's the persistence proof.
+
+---
+
+## Sending real email (Resend)
+
+By default assignment emails are **not** sent — `EMAIL_MODE=mock` writes each
+message to `backend/data/outbox/*.json` so you can inspect exactly what would go
+out. To send for real, use [Resend](https://resend.com) (the `ResendEmailSender`
+behind the same `EmailSender` interface — the bulk-send logic doesn't change).
+
+1. **Get a key** at <https://resend.com> → *API Keys* (`re_...`).
+2. **Set the environment** (backend, venv activated):
+
+   ```bash
+   export EMAIL_MODE=resend
+   export RESEND_API_KEY=re_...
+   export RESEND_FROM_EMAIL=onboarding@resend.dev        # see the domain note below
+   # optional — replies go here instead of the from-address:
+   export RESEND_REPLY_TO=talent@yourdomain.com
+   ```
+
+   Going live is **only** those variables — `EMAIL_MODE=resend` + a key + a
+   from-address. No code change; the factory selects the Resend sender.
+
+> **Domain reality (read this first).** To email **real candidate inboxes** you
+> must **verify a domain** in Resend (add the SPF/DKIM DNS records it gives you),
+> then set `RESEND_FROM_EMAIL` to an address on that domain. **Until you do**,
+> Resend only lets you send from its shared `onboarding@resend.dev` **to your own
+> Resend-account email address** — great for the smoke test below, useless for
+> reaching applicants. This is a Resend rule, not a Catalist one; it will
+> otherwise surprise you with a `422`.
+
+> **Free-tier limits.** 100 emails/day, 3,000/month, ~2 requests/second. The bulk
+> sender already sends **sequentially** (one request at a time), so it stays
+> under the rate limit on its own — the real ceiling for a large batch is the
+> **100/day** cap, not the rate.
+
+**How it fails, on purpose:** missing `RESEND_API_KEY`/`RESEND_FROM_EMAIL` in
+resend mode → `EmailConfigError` on first send (call time, never at import). A
+Resend API rejection (bad recipient, unverified domain, quota) comes back as a
+typed `EmailSendResult(success=False, error=...)` carrying Resend's status +
+message — it never raises past the interface, so one bad address can't crash a
+bulk batch (the route surfaces it as a `502` for a single send).
+
+### Opt-in live email smoke test (sends one real email)
+
+One live test, **skipped by default**. It sends exactly one real assignment
+email (with the sample brief PDF attached) via the real Resend sender and asserts
+a Resend message id comes back:
+
+```bash
+RUN_LIVE_EMAIL=1 \
+RESEND_API_KEY=re_... \
+RESEND_TEST_RECIPIENT=you@example.com \
+pytest -k live_email
+```
+
+`RESEND_FROM_EMAIL` defaults to `onboarding@resend.dev` if unset — so with an
+unverified domain, set `RESEND_TEST_RECIPIENT` to **your own Resend-account
+email** (per the domain note above) or Resend will reject it.
+
+> ⚠️ **Cost / quota warning.** This is the only email test that hits the network.
+> It delivers a real email and consumes one send from your daily quota (100/day
+> free). The normal `pytest` run never triggers it — it is gated on
+> `RUN_LIVE_EMAIL`. All other email tests stub Resend's HTTP call with `respx`
+> and send nothing.
 
 ---
 

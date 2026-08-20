@@ -176,6 +176,14 @@ def get_resend_from_email() -> str | None:
     return os.getenv("RESEND_FROM_EMAIL")
 
 
+def get_resend_reply_to() -> str | None:
+    """Optional Reply-To address for real sends. When set, candidates replying
+    to an assignment email reach this inbox instead of the send-only from-address.
+    Read at call time; unset (or blank) means no reply_to is sent."""
+    raw = (os.getenv("RESEND_REPLY_TO") or "").strip()
+    return raw or None
+
+
 def get_assignment_deadline_days() -> int:
     try:
         return int(os.getenv("ASSIGNMENT_DEADLINE_DAYS", "5"))
