@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getJobSummary, ingestJob, listJobs, type Job, type JobSummary } from "@/lib/api";
+import {
+  getJobSummary,
+  ingestJob,
+  listJobs,
+  type IngestionSummary,
+  type Job,
+  type JobSummary,
+} from "@/lib/api";
 import { TierBar, TIER_META, TIER_ORDER } from "@/components/verdict";
 import { Button, Card, Spinner, StatTile } from "@/components/ui";
 
@@ -13,7 +20,8 @@ export default function JobsOverview() {
   const [summaries, setSummaries] = useState<Record<string, JobSummary>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
-  const [flash, setFlash] = useState<Record<string, string>>({});
+  const [results, setResults] = useState<Record<string, IngestionSummary>>({});
+  const [ingestErr, setIngestErr] = useState<Record<string, string>>({});
 
   const loadSummary = useCallback(async (id: string) => {
     try {
@@ -55,16 +63,13 @@ export default function JobsOverview() {
 
   async function onIngest(id: string) {
     setBusy((b) => ({ ...b, [id]: true }));
-    setFlash((f) => ({ ...f, [id]: "" }));
+    setIngestErr((m) => ({ ...m, [id]: "" }));
     try {
       const res = await ingestJob(id);
+      setResults((r) => ({ ...r, [id]: res }));
       await loadSummary(id);
-      setFlash((f) => ({
-        ...f,
-        [id]: `Added ${res.processed} · ${res.skipped} already in${res.failed ? ` · ${res.failed} failed` : ""}`,
-      }));
     } catch (e) {
-      setFlash((f) => ({ ...f, [id]: e instanceof Error ? e.message : "Ingestion failed." }));
+      setIngestErr((m) => ({ ...m, [id]: e instanceof Error ? e.message : "Ingestion failed." }));
     } finally {
       setBusy((b) => ({ ...b, [id]: false }));
     }
@@ -136,7 +141,8 @@ export default function JobsOverview() {
               job={job}
               summary={summaries[job.id]}
               busy={!!busy[job.id]}
-              flash={flash[job.id]}
+              result={results[job.id]}
+              ingestError={ingestErr[job.id]}
               onOpen={() => router.push(`/jobs/${job.id}`)}
               onIngest={() => void onIngest(job.id)}
             />
@@ -151,14 +157,16 @@ function JobCard({
   job,
   summary,
   busy,
-  flash,
+  result,
+  ingestError,
   onOpen,
   onIngest,
 }: {
   job: Job;
   summary: JobSummary | undefined;
   busy: boolean;
-  flash?: string;
+  result?: IngestionSummary;
+  ingestError?: string;
   onOpen: () => void;
   onIngest: () => void;
 }) {
@@ -251,7 +259,33 @@ function JobCard({
           </Link>
         </div>
       </div>
-      {flash && <div className="mt-2 truncate font-mono text-[11px] text-faint">{flash}</div>}
+      {ingestError && (
+        <div className="mt-2 rounded-lg px-2.5 py-1.5 text-xs" style={{ color: "var(--tier-reject)", background: "var(--tier-reject-tint)" }}>
+          {ingestError}
+        </div>
+      )}
+      {result && (
+        <div className="mt-2">
+          <div className="flex items-center gap-3 font-mono text-[11px] tabular-nums">
+            <span style={{ color: "var(--tier-shortlist)" }}>{result.processed} new</span>
+            <span className="text-muted">{result.skipped} already in</span>
+            <span style={{ color: result.failed ? "var(--tier-reject)" : "var(--faint)" }}>{result.failed} failed</span>
+          </div>
+          {result.failures.length > 0 && (
+            <ul className="mt-1.5 space-y-1 text-[11px] text-muted">
+              {result.failures.slice(0, 3).map((f, i) => (
+                <li key={`${f.submission_ref}-${i}`} className="truncate">
+                  <span style={{ color: "var(--tier-reject)" }}>•</span>{" "}
+                  <span className="text-ink">{f.name || f.submission_ref}</span> — {f.reason}
+                </li>
+              ))}
+              {result.failures.length > 3 && (
+                <li className="text-faint">+{result.failures.length - 3} more — open the pipeline for details</li>
+              )}
+            </ul>
+          )}
+        </div>
+      )}
     </Card>
   );
 }

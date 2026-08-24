@@ -86,15 +86,20 @@ export async function fetchMe(): Promise<Me> {
 /** Fetch a protected file (e.g. the assignment brief) WITH the session and open
  *  it in a new tab — plain <a href> links can't carry the Authorization header. */
 export async function openAuthedFile(path: string): Promise<void> {
-  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders(), cache: "no-store" });
-  if (res.status === 401) {
-    onUnauthorized();
-    return;
+  // Fire-and-forget from the UI — never reject (avoid unhandled rejections).
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders(), cache: "no-store" });
+    if (res.status === 401) {
+      onUnauthorized();
+      return;
+    }
+    if (!res.ok) return; // brief only offered when present; a rare miss is a no-op
+    const url = URL.createObjectURL(await res.blob());
+    if (typeof window !== "undefined") window.open(url, "_blank", "noopener");
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch {
+    /* network hiccup — silently ignore for this fire-and-forget open */
   }
-  if (!res.ok) throw new Error(`${res.status}: could not open file.`);
-  const url = URL.createObjectURL(await res.blob());
-  if (typeof window !== "undefined") window.open(url, "_blank", "noopener");
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 export type Recommendation = "shortlist" | "borderline" | "reject";

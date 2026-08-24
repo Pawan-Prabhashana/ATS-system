@@ -8,6 +8,7 @@ import {
   ingestJob,
   listJobCandidates,
   type CandidateRecord,
+  type IngestionSummary,
   type Job,
   type JobSummary,
   type Recommendation,
@@ -44,6 +45,7 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
   const [openId, setOpenId] = useState<string | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
   const [ingesting, setIngesting] = useState(false);
+  const [ingestResult, setIngestResult] = useState<IngestionSummary | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -90,8 +92,10 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
   async function onIngest() {
     setIngesting(true);
     setError(null);
+    setIngestResult(null);
     try {
-      await ingestJob(id);
+      const res = await ingestJob(id);
+      setIngestResult(res);
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ingestion failed.");
@@ -179,6 +183,10 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
         </div>
       )}
 
+      {ingestResult && (
+        <IngestSummary result={ingestResult} onDismiss={() => setIngestResult(null)} />
+      )}
+
       {/* Tabs — AI tier only */}
       <div className="mt-6 flex items-center gap-1 overflow-x-auto border-b border-line">
         {TABS.map((t) => {
@@ -248,6 +256,40 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
       <SlideOver open={sendOpen} onClose={() => setSendOpen(false)}>
         {sendOpen && <SendAssignments jobId={id} onClose={() => setSendOpen(false)} onChanged={() => void refresh()} />}
       </SlideOver>
+    </div>
+  );
+}
+
+function IngestSummary({ result, onDismiss }: { result: IngestionSummary; onDismiss: () => void }) {
+  const nothing = result.processed === 0 && result.skipped === 0 && result.failed === 0;
+  return (
+    <div className="mt-4 rounded-xl border border-line bg-surface p-3.5 shadow-[var(--shadow-sm)]">
+      <div className="flex items-center gap-4 text-sm">
+        <span className="font-medium">Ingestion complete</span>
+        <span className="flex items-center gap-3 font-mono text-xs tabular-nums">
+          <span style={{ color: "var(--tier-shortlist)" }}>{result.processed} new</span>
+          <span className="text-muted">{result.skipped} already in</span>
+          <span style={{ color: result.failed ? "var(--tier-reject)" : "var(--faint)" }}>{result.failed} failed</span>
+        </span>
+        <button onClick={onDismiss} aria-label="Dismiss" className="ml-auto text-faint hover:text-ink">✕</button>
+      </div>
+      {nothing && (
+        <p className="mt-1.5 text-xs text-muted">No new applicants found — the form has no submissions past what’s already ingested.</p>
+      )}
+      {result.failures.length > 0 && (
+        <ul className="mt-2 space-y-1 border-t border-line pt-2 text-xs text-muted">
+          {result.failures.map((f, i) => (
+            <li key={`${f.submission_ref}-${i}`} className="flex gap-2">
+              <span aria-hidden style={{ color: "var(--tier-reject)" }}>•</span>
+              <span className="min-w-0">
+                <span className="font-medium text-ink">{f.name || f.submission_ref}</span>
+                {" — "}
+                {f.reason}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
