@@ -4,7 +4,8 @@ type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md";
 
 const VARIANT: Record<Variant, string> = {
-  primary: "bg-accent text-white hover:brightness-95 disabled:opacity-40",
+  primary:
+    "bg-accent text-white shadow-[var(--shadow-sm)] hover:brightness-95 hover:shadow-[var(--shadow-md)] disabled:opacity-40 disabled:shadow-none",
   secondary: "bg-surface text-ink border border-line-2 hover:bg-surface-2 disabled:opacity-40",
   ghost: "bg-transparent text-muted hover:bg-surface-2 hover:text-ink disabled:opacity-40",
   danger:
@@ -31,7 +32,7 @@ export function Button({
   return (
     <button
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center font-medium tracking-tight transition disabled:cursor-not-allowed ${VARIANT[variant]} ${SIZE[size]} ${className}`}
+      className={`inline-flex items-center justify-center font-medium tracking-tight transition duration-150 ease-out active:translate-y-px disabled:cursor-not-allowed disabled:active:translate-y-0 ${VARIANT[variant]} ${SIZE[size]} ${className}`}
       {...rest}
     >
       {loading && <Spinner className="-ml-0.5" />}
@@ -51,12 +52,60 @@ export function Spinner({ className = "" }: { className?: string }) {
 
 export function Card({
   className = "",
+  elevated = false,
   children,
   ...rest
-}: { className?: string; children: ReactNode } & React.HTMLAttributes<HTMLDivElement>) {
+}: {
+  className?: string;
+  /** Add a hover lift + deeper shadow (for clickable cards). */
+  elevated?: boolean;
+  children: ReactNode;
+} & React.HTMLAttributes<HTMLDivElement>) {
+  const lift = elevated
+    ? "transition-[box-shadow,transform,border-color] duration-200 ease-out hover:-translate-y-0.5 hover:border-line-2 hover:shadow-[var(--shadow-md)]"
+    : "";
   return (
-    <div className={`rounded-xl border border-line bg-surface ${className}`} {...rest}>
+    <div
+      className={`rounded-xl border border-line bg-surface shadow-[var(--shadow-sm)] ${lift} ${className}`}
+      {...rest}
+    >
       {children}
+    </div>
+  );
+}
+
+/** A compact readout tile: big monospaced value over a small uppercase label,
+ *  with an optional leading icon and accent color. Used in overview strips and
+ *  the pipeline summary. */
+export function StatTile({
+  label,
+  value,
+  icon,
+  tone,
+  className = "",
+}: {
+  label: string;
+  value: ReactNode;
+  icon?: ReactNode;
+  tone?: string; // a CSS color for the value + icon (defaults to ink)
+  className?: string;
+}) {
+  return (
+    <div className={`rounded-xl border border-line bg-surface p-3.5 shadow-[var(--shadow-sm)] ${className}`}>
+      <div className="flex items-center gap-1.5 text-faint">
+        {icon && (
+          <span className="grid h-3.5 w-3.5 place-items-center" style={tone ? { color: tone } : undefined}>
+            {icon}
+          </span>
+        )}
+        <span className="truncate text-[10px] font-medium uppercase tracking-[0.06em]">{label}</span>
+      </div>
+      <div
+        className="mt-1 font-mono text-[22px] font-semibold leading-none tabular-nums"
+        style={tone ? { color: tone } : undefined}
+      >
+        {value}
+      </div>
     </div>
   );
 }

@@ -28,6 +28,14 @@
   --dec-shortlisted: #2e56e6;
   --dec-rejected: #3a4557;
   --dec-sent: #6d4ae0;
+
+  /* Elevation — soft, cool-tinted shadows (Phase 12 polish). Layered surfaces
+     read as an instrument with depth, never skeuomorphic. */
+  --surface-raised: #ffffff;
+  --shadow-sm: 0 1px 2px -1px rgba(20, 27, 43, 0.10), 0 1px 3px rgba(20, 27, 43, 0.06);
+  --shadow-md: 0 4px 12px -4px rgba(20, 27, 43, 0.12), 0 2px 6px -2px rgba(20, 27, 43, 0.07);
+  --shadow-lg: 0 16px 40px -16px rgba(20, 27, 43, 0.24), 0 6px 16px -8px rgba(20, 27, 43, 0.12);
+  --ring-accent: 0 0 0 3px var(--accent-tint);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -54,6 +62,14 @@
     --dec-shortlisted: #6d8bff;
     --dec-rejected: #93a1b4;
     --dec-sent: #a68bff;
+
+    /* Dark elevation: raised surfaces lighten (light comes from above) and
+       shadows deepen for separation on the near-black canvas. */
+    --surface-raised: #1c2431;
+    --shadow-sm: 0 1px 2px -1px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.35);
+    --shadow-md: 0 6px 16px -6px rgba(0, 0, 0, 0.6), 0 2px 6px -2px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 20px 48px -18px rgba(0, 0, 0, 0.72), 0 8px 20px -10px rgba(0, 0, 0, 0.5);
+    --ring-accent: 0 0 0 3px var(--accent-tint);
   }
 }
 

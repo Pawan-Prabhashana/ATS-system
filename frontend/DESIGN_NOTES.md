@@ -99,3 +99,24 @@ All three via `next/font` (Google). Distinct roles = not a single-font default.
 Responsive to mobile; a visible keyboard focus ring; `prefers-reduced-motion` honored
 (slide-over / track transitions gated); copy in sentence case, naming things by what
 the operator controls; empty and error states give direction in the tool's voice.
+
+## Phase 12 — polish + branding (elevate, don't replace)
+
+The control-surface system is unchanged; Phase 12 adds depth and hierarchy on top.
+
+- **Elevation tokens** (`globals.css`): `--shadow-sm/md/lg` (soft, cool-tinted; they
+  deepen in dark mode, where raised surfaces also lighten). Applied through the
+  shared `Card` (base `shadow-sm`, optional `elevated` hover-lift) and `Button`
+  (primary carries a shadow), so depth propagates app-wide from two components.
+- **Logo**: `public/Catalist-logo.jpeg` — a dark rounded tile. Always contained in
+  a `rounded` box with a `ring-1 ring-line-2` so the JPEG (no transparency) never
+  shows a hard box on light/dark surfaces. Used in the rail brand, `/login`, and
+  the favicon.
+- **Jobs landing**: an overview strip of aggregate `StatTile`s (open roles,
+  candidates, shortlisted, assignments sent) fills the former empty top; job cards
+  became mini-dashboards (tier bar + per-tier count tiles, connection status with
+  an icon, hover lift, primary "Open pipeline" vs secondary ingest/settings). A
+  3-column grid (`xl`) uses the wide space; empty states are designed moments.
+- **Login** (`/login`): full-bleed, ambient accent glow (no motion), branded card.
+- Reduced-motion is honored globally (the existing media query zeroes transitions),
+  so every hover-lift / micro-transition degrades to instant.
