@@ -143,6 +143,37 @@ def get_database_url() -> str | None:
     return raw or None
 
 
+# --------------------------------------------------------------------------- #
+# Authentication (Phase 12) — shared-gate login (one credential set for the team)
+# --------------------------------------------------------------------------- #
+def get_auth_enabled() -> bool:
+    """Whether the API enforces auth. Default TRUE. Only an explicit falsey value
+    disables it — a LOCAL DEV convenience; production/hosted must leave it on."""
+    raw = os.getenv("AUTH_ENABLED")
+    if raw is None:
+        return True
+    return raw.strip().lower() not in ("false", "0", "no", "off")
+
+
+def get_app_auth_username() -> str:
+    return os.getenv("APP_AUTH_USERNAME", "admin")
+
+
+def get_app_auth_password() -> str | None:
+    return os.getenv("APP_AUTH_PASSWORD")
+
+
+def get_auth_secret_key() -> str | None:
+    return os.getenv("AUTH_SECRET_KEY")
+
+
+def get_auth_token_ttl_hours() -> int:
+    try:
+        return int(os.getenv("AUTH_TOKEN_TTL_HOURS", "12"))
+    except ValueError:
+        return 12
+
+
 def get_google_sheet_id() -> str | None:
     return os.getenv("GOOGLE_SHEET_ID")
 

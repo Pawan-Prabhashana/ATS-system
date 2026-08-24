@@ -449,6 +449,45 @@ Environment variables (see `app/config.py`):
 | `RESEND_FROM_EMAIL` | _(unset)_ | Sender address (resend mode); must be on a verified domain to reach real inboxes |
 | `RESEND_REPLY_TO` | _(unset)_ | Optional Reply-To so candidate replies reach a real inbox |
 | `ASSIGNMENT_DEADLINE_DAYS` | `5` | Days from send until the assignment deadline |
+| `AUTH_ENABLED` | `true` | Enforce login on the API. `false` = no-op gate — **local dev only** |
+| `APP_AUTH_USERNAME` | `admin` | Shared-gate username |
+| `APP_AUTH_PASSWORD` | _(unset)_ | Shared-gate password (required when `AUTH_ENABLED=true`) |
+| `AUTH_SECRET_KEY` | _(unset)_ | HS256 signing secret (required when `AUTH_ENABLED=true`; use ≥32 random bytes) |
+| `AUTH_TOKEN_TTL_HOURS` | `12` | Session token lifetime |
+| `NEXT_PUBLIC_AUTH_ENABLED` | _(unset)_ | Frontend build flag; set `false` to skip the login middleware in local dev |
+
+---
+
+## Authentication (shared gate)
+
+The whole app sits behind **one shared credential set** — not per-user accounts.
+The goal is to keep the public internet out, not to differentiate permissions.
+The **API is the real boundary**: every route except `GET /health` requires a
+valid session; the login screen is a convenience on top.
+
+- **Transport is a Bearer JWT**, not a cookie. The Next.js frontend and FastAPI
+  backend are cross-origin (different localhost ports, which have moved across
+  phases), where httpOnly cross-origin `Set-Cookie` is fragile and causes the
+  classic "logs in then immediately logged out" bug. `POST /auth/login` returns
+  the token in the body; the frontend stores it in a JS-readable cookie (so the
+  middleware can gate routes) and sends it back as `Authorization: Bearer` on
+  every call. CORS is `allow_credentials=True` with an **exact** origin
+  allowlist (never `*`).
+- **Endpoints:** `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`
+  (reports session validity; never 401s). Unauthenticated/expired requests to
+  protected routes get a clean **401**, never a 500.
+- **Going live:** set `AUTH_ENABLED=true` (the default), `APP_AUTH_USERNAME`,
+  a strong `APP_AUTH_PASSWORD`, and a random `AUTH_SECRET_KEY` (≥32 bytes). The
+  password is compared in constant time; tokens are HS256-signed.
+- **Local dev bypass:** set **both** `AUTH_ENABLED=false` (backend no-op gate)
+  and `NEXT_PUBLIC_AUTH_ENABLED=false` (frontend skips the middleware). This is
+  a convenience for local work only — **production/hosted must leave auth on.**
+
+> Note: per-candidate artifact files under `/media/candidates/**` (CV PDFs,
+> page images) stay public — they're loaded by `<img>`/`<a>` which can't send an
+> Authorization header, and their URLs carry an unguessable per-candidate hash.
+> Structured data (the API) is the enforced boundary. Serving those blobs behind
+> auth (signed URLs / object storage) is future work.
 
 ---
 

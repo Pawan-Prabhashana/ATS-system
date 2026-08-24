@@ -43,11 +43,6 @@ router = APIRouter()
 MEDIA_PREFIX = "/media/candidates"
 
 
-@router.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
-
-
 @router.post("/parse", response_model=ParsedCV)
 async def parse(file: UploadFile = File(...)) -> ParsedCV:
     """Accept a PDF upload and return the structured :class:`ParsedCV`.

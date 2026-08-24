@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  briefUrl,
   bulkSendAssignments,
   deleteBrief,
   getJob,
   listJobCandidates,
+  openAuthedFile,
   sendAssignment,
   updateJob,
   uploadBrief,
@@ -200,9 +200,13 @@ export function SendAssignments({
                   <span aria-hidden style={{ color: "var(--tier-shortlist)" }}>●</span>
                   {job?.assignment_brief_filename}
                 </span>
-                <a href={briefUrl(jobId)} target="_blank" rel="noreferrer" className="text-xs text-[var(--accent-ink)] hover:underline">
+                <button
+                  type="button"
+                  onClick={() => void openAuthedFile(`/jobs/${encodeURIComponent(jobId)}/assignment-brief`)}
+                  className="text-xs text-[var(--accent-ink)] hover:underline"
+                >
                   Preview ↗
-                </a>
+                </button>
                 <div className="ml-auto flex gap-2">
                   <Button size="sm" variant="secondary" loading={briefBusy} onClick={() => fileRef.current?.click()}>
                     Replace

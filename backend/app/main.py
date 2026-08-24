@@ -4,16 +4,24 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
+from app.auth import require_auth
+from app.auth import router as auth_router
 from app.config import settings
 
 # Dev origins allowed to call the API (the Next.js dev server). Overridable via
-# a comma-separated CATALIST_CORS_ORIGINS for other setups.
-DEFAULT_CORS_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+# a comma-separated CATALIST_CORS_ORIGINS for other setups. The frontend has run
+# on :3000 and :3009 across phases, so both are allowed by default.
+DEFAULT_CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3009",
+    "http://127.0.0.1:3009",
+]
 
 
 def _cors_origins() -> list[str]:
@@ -58,14 +66,25 @@ def create_app() -> FastAPI:
         lifespan=_lifespan,
     )
 
+    # allow_credentials=True with an EXACT origin allowlist (never "*"). We use
+    # Bearer tokens (not cookies), so explicit methods/headers keep this valid
+    # under the credentialed-CORS rules (where "*" is disallowed).
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "PUT", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
     )
 
-    app.include_router(router)
+    @app.get("/health")
+    def health() -> dict[str, str]:  # public — the one unauthenticated route
+        return {"status": "ok"}
+
+    # Auth routes are reachable WITHOUT a session (login must be); every other
+    # route is gated by require_auth.
+    app.include_router(auth_router)
+    app.include_router(router, dependencies=[Depends(require_auth)])
 
     # Serve per-candidate artifacts (CV + page images) as static files so the
     # frontend can load them by URL. Directory is created if missing.

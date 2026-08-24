@@ -3,6 +3,100 @@
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+// --- Auth (Phase 12) -------------------------------------------------------
+// Session transport is a Bearer JWT (see app/auth.py for why not cookies). The
+// token lives in a JS-readable cookie so the Next.js middleware can gate routes
+// AND this client can send it as `Authorization: Bearer` on every call.
+export const TOKEN_COOKIE = "catalist_token";
+
+export function getToken(): string | null {
+  if (typeof document === "undefined") return null;
+  const m = document.cookie.match(/(?:^|;\s*)catalist_token=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+export function setToken(token: string, expiresAt?: string): void {
+  if (typeof document === "undefined") return;
+  const parts = [`${TOKEN_COOKIE}=${encodeURIComponent(token)}`, "path=/", "SameSite=Lax"];
+  if (expiresAt) parts.push(`expires=${new Date(expiresAt).toUTCString()}`);
+  document.cookie = parts.join("; ");
+}
+
+export function clearToken(): void {
+  if (typeof document === "undefined") return;
+  document.cookie = `${TOKEN_COOKIE}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+}
+
+function authHeaders(): Record<string, string> {
+  const t = getToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
+/** An expired/invalid session (API 401): drop the token and bounce to /login. */
+function onUnauthorized(): void {
+  clearToken();
+  if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = `/login?next=${next}`;
+  }
+}
+
+export interface Me {
+  authenticated: boolean;
+  username: string | null;
+  auth_enabled: boolean;
+}
+
+/** Log in; stores the session token on success. Throws with the server's
+ *  message on bad credentials (a 401 here is shown inline, NOT a redirect). */
+export async function login(username: string, password: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) {
+    let detail = "Login failed. Check your credentials and try again.";
+    try {
+      const b = (await res.json()) as { detail?: string };
+      if (b?.detail) detail = b.detail;
+    } catch {
+      /* keep default */
+    }
+    throw new Error(detail);
+  }
+  const data = (await res.json()) as { token: string; expires_at: string };
+  setToken(data.token, data.expires_at);
+}
+
+export async function logout(): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/auth/logout`, { method: "POST", headers: authHeaders() });
+  } catch {
+    /* best-effort; the token is client-side anyway */
+  }
+  clearToken();
+}
+
+export async function fetchMe(): Promise<Me> {
+  const res = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders(), cache: "no-store" });
+  return (await res.json()) as Me;
+}
+
+/** Fetch a protected file (e.g. the assignment brief) WITH the session and open
+ *  it in a new tab — plain <a href> links can't carry the Authorization header. */
+export async function openAuthedFile(path: string): Promise<void> {
+  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders(), cache: "no-store" });
+  if (res.status === 401) {
+    onUnauthorized();
+    return;
+  }
+  if (!res.ok) throw new Error(`${res.status}: could not open file.`);
+  const url = URL.createObjectURL(await res.blob());
+  if (typeof window !== "undefined") window.open(url, "_blank", "noopener");
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export type Recommendation = "shortlist" | "borderline" | "reject";
 
 export type CandidateStatus =
@@ -166,9 +260,17 @@ export function mediaUrl(path: string): string {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+      ...(init?.headers ?? {}),
+    },
     cache: "no-store",
   });
+  if (res.status === 401) {
+    onUnauthorized();
+    throw new Error("401: Your session has expired. Please sign in again.");
+  }
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -214,7 +316,16 @@ export function briefUrl(id: string): string {
 export async function uploadBrief(id: string, file: File): Promise<Job> {
   const fd = new FormData();
   fd.append("file", file);
-  const res = await fetch(briefUrl(id), { method: "POST", body: fd, cache: "no-store" });
+  const res = await fetch(briefUrl(id), {
+    method: "POST",
+    body: fd,
+    headers: authHeaders(),
+    cache: "no-store",
+  });
+  if (res.status === 401) {
+    onUnauthorized();
+    throw new Error("401: Your session has expired. Please sign in again.");
+  }
   if (!res.ok) {
     let detail = res.statusText;
     try {

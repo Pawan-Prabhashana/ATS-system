@@ -20,6 +20,7 @@ const jetbrains = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Catalist — recruit screening",
   description: "Triage AI-scored candidates and configure open roles.",
+  icons: { icon: "/Catalist-logo.jpeg", apple: "/Catalist-logo.jpeg" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

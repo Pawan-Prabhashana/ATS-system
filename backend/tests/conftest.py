@@ -41,6 +41,42 @@ def _isolate_data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr("app.config.settings.data_dir", tmp_path / "data")
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "real_auth: exercise the real auth dependency (no test bypass) — used by "
+        "the auth test module; every other test runs authenticated via a bypass.",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _authenticated(request, monkeypatch):
+    """Make every route test run as an authenticated session.
+
+    Phase 12 gates the whole API behind ``require_auth``. Rather than thread a
+    real token through every existing test, we set valid server-side creds and
+    override the dependency with a valid principal — the standard FastAPI test
+    pattern. Tests marked ``real_auth`` skip the override so they can exercise
+    the genuine 401 / login / expiry behavior.
+    """
+    monkeypatch.setenv("APP_AUTH_USERNAME", "tester")
+    monkeypatch.setenv("APP_AUTH_PASSWORD", "test-password")
+    monkeypatch.setenv("AUTH_SECRET_KEY", "unit-test-secret-key-at-least-32-bytes-long")
+    monkeypatch.setenv("AUTH_ENABLED", "true")
+
+    from app.auth import require_auth
+    from app.main import app
+
+    if "real_auth" in request.keywords:
+        app.dependency_overrides.pop(require_auth, None)
+        yield
+        return
+
+    app.dependency_overrides[require_auth] = lambda: {"sub": "tester"}
+    yield
+    app.dependency_overrides.pop(require_auth, None)
+
+
 @pytest.fixture(scope="session")
 def rubric():
     """General (content-only) rubric — requires_visual_review is False."""
