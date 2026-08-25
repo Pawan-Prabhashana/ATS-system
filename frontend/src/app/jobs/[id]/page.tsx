@@ -139,15 +139,25 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
               Settings
             </Link>
           </div>
-          {job && (
-            <div className="mt-2 max-w-2xl">
-              <button onClick={() => setJdOpen((v) => !v)} className="text-sm text-muted hover:text-ink">
-                {jdOpen ? "Hide description" : "Job description"} <span className="text-faint">{jdOpen ? "▲" : "▼"}</span>
-              </button>
-              {jdOpen && (
-                <p className="mt-2 whitespace-pre-line rounded-xl border border-line bg-surface p-4 text-sm leading-relaxed text-muted">
-                  {job.job_description}
-                </p>
+          {job && job.job_description.trim() && (
+            <div className="mt-3 max-w-2xl">
+              <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-faint">
+                Job description
+              </div>
+              <p
+                className={`mt-1 whitespace-pre-line text-sm leading-relaxed text-muted ${
+                  jdOpen ? "" : "line-clamp-2"
+                }`}
+              >
+                {job.job_description}
+              </p>
+              {job.job_description.length > 140 && (
+                <button
+                  onClick={() => setJdOpen((v) => !v)}
+                  className="mt-1 text-xs font-medium text-[var(--accent-ink)] hover:underline"
+                >
+                  {jdOpen ? "See less" : "See more"}
+                </button>
               )}
             </div>
           )}
