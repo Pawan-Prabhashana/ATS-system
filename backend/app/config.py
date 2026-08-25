@@ -178,12 +178,39 @@ def get_google_sheet_id() -> str | None:
     return os.getenv("GOOGLE_SHEET_ID")
 
 
+_MATERIALIZED_SA_JSON: str | None = None  # cache: temp path we wrote the JSON to
+
+
+def _materialize_service_account_json(json_str: str) -> str:
+    """Write the raw service-account JSON to a stable temp file and return its
+    path. Used on hosts (Render) where the key is provided as an env STRING
+    rather than a mounted file — the intake source only knows how to read a
+    file, so we materialize one. Cached so we write at most once per process."""
+    global _MATERIALIZED_SA_JSON
+    if _MATERIALIZED_SA_JSON and Path(_MATERIALIZED_SA_JSON).exists():
+        return _MATERIALIZED_SA_JSON
+    import tempfile
+
+    dest = Path(tempfile.gettempdir()) / "catalist-service-account.json"
+    dest.write_text(json_str, encoding="utf-8")
+    try:
+        dest.chmod(0o600)
+    except OSError:
+        pass  # best-effort on hosts that disallow chmod
+    _MATERIALIZED_SA_JSON = str(dest)
+    return _MATERIALIZED_SA_JSON
+
+
 def get_google_service_account_file() -> str | None:
     """Return the service-account JSON path, or None if none is configured.
 
-    Relative paths resolve against the backend root. If the env var is unset
-    (or empty), fall back to ``backend/service-account.json`` when that file
-    exists so local ``.env`` / uvicorn ``--env-file`` quirks cannot hide it.
+    Three sources, in order:
+    1. ``GOOGLE_SERVICE_ACCOUNT_FILE`` — an explicit path (local dev). Relative
+       paths resolve against the backend root.
+    2. ``GOOGLE_SERVICE_ACCOUNT_JSON`` — the raw JSON key as a STRING (hosted,
+       e.g. Render, where no file is mounted). Materialized to a temp file.
+    3. Fallback to ``backend/service-account.json`` when it exists, so local
+       ``.env`` / uvicorn ``--env-file`` quirks cannot hide it.
     """
     raw = (os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE") or "").strip().strip('"').strip("'")
     if raw:
@@ -191,6 +218,9 @@ def get_google_service_account_file() -> str | None:
         if not path.is_absolute():
             path = BACKEND_ROOT / path
         return str(path)
+    json_str = (os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON") or "").strip()
+    if json_str:
+        return _materialize_service_account_json(json_str)
     default = BACKEND_ROOT / "service-account.json"
     return str(default) if default.exists() else None
 

@@ -25,10 +25,20 @@ DEFAULT_CORS_ORIGINS = [
 
 
 def _cors_origins() -> list[str]:
+    """Exact-origin allowlist for CORS (never '*', since we send credentials).
+
+    - CATALIST_CORS_ORIGINS (comma-separated) overrides the localhost defaults.
+    - FRONTEND_ORIGIN (the deployed Vercel URL) is always appended when set, so
+      the hosted frontend is allowed alongside local dev. Trailing slash trimmed.
+    """
     raw = os.getenv("CATALIST_CORS_ORIGINS")
-    if raw:
-        return [o.strip() for o in raw.split(",") if o.strip()]
-    return DEFAULT_CORS_ORIGINS
+    origins = (
+        [o.strip() for o in raw.split(",") if o.strip()] if raw else list(DEFAULT_CORS_ORIGINS)
+    )
+    frontend = (os.getenv("FRONTEND_ORIGIN") or "").strip().rstrip("/")
+    if frontend and frontend not in origins:
+        origins.append(frontend)
+    return origins
 
 
 @asynccontextmanager

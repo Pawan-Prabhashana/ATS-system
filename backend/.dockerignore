@@ -1,0 +1,21 @@
+# Never ship local state, secrets, or caches into the image.
+.venv/
+venv/
+env/
+data/
+secrets/
+service-account.json
+.env
+.env.*
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+output/
+*.db
+*.sqlite3
+tests/
+.DS_Store

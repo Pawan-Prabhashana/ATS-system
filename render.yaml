@@ -1,0 +1,44 @@
+# Render blueprint for the Catalist backend (FastAPI, Docker web service).
+# Import via Render → "New +" → "Blueprint", or configure the same values by
+# hand in a Docker Web Service (see DEPLOY.md). Secrets use `sync: false` so
+# they are entered in the Render dashboard, NEVER committed to git.
+services:
+  - type: web
+    name: catalist-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # --- Non-secret defaults (safe to keep in git) ---
+      - key: STORE_BACKEND
+        value: postgres
+      - key: EVALUATOR_MODE
+        value: anthropic
+      - key: EMAIL_MODE
+        value: mock          # demo-safe: no real emails. Set to `resend` if live email is part of the pitch.
+      - key: AUTH_ENABLED
+        value: "true"
+      # --- Secrets + per-deploy values (set in the Render dashboard) ---
+      - key: DATABASE_URL                 # SAME Supabase project as local -> existing data appears
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON  # raw JSON string (no file on Render)
+        sync: false
+      - key: GOOGLE_SHEET_ID              # only if using live Google intake
+        sync: false
+      - key: APP_AUTH_USERNAME
+        sync: false
+      - key: APP_AUTH_PASSWORD            # FRESH value — the app is now public
+        sync: false
+      - key: AUTH_SECRET_KEY              # FRESH value — regenerate, don't reuse local
+        sync: false
+      - key: FRONTEND_ORIGIN              # the Vercel URL (set after the frontend deploys)
+        sync: false
