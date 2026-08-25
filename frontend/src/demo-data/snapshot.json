@@ -2,6 +2,38 @@
   "capturedAt": "2026-08-25T08:42:02.629264",
   "jobs": [
     {
+      "id": "ai-agent-intern",
+      "title": "AI Agent intern",
+      "job_description": "Role Summary - As an AI Agent Intern, you will work closely with our engineering and product teams to design, develop, and test large language model (LLM) powered agents. You will explore cutting-edge AI frameworks to automate complex tasks, build interactive digital assistants, and create smart pipelines that solve real-world problems for our users. Key Responsibilities - Design, build, and deploy autonomous AI agents using modern LLM frameworks. Write, refine, and optimize complex prompts to safely and effectively guide agent behavior. Integrate AI agents with external APIs, databases, and third-party software tools. Develop Retrieval-Augmented Generation (RAG) pipelines to provide agents with accurate, domain-specific knowledge. Design evaluation metrics to test agent performance for accuracy, hallucination rates, and efficiency.Document code, workflows, and experimental findings to share knowledge with the broader engineering team. Required Qualifications Currently pursuing (or recently graduated with) a degree in Computer Science, Artificial Intelligence, Data Science, or a related field. Strong proficiency in programming, specifically using Python or TypeScript. Solid conceptual understanding of Large Language Models (LLMs) and generative AI concepts. Familiarity with version control systems like Git and collaborative platforms like GitHub. Excellent problem-solving skills and a strong, self-driven desire to learn rapidly evolving technologies.",
+      "rubric": {
+        "job_title": "AI Agent intern",
+        "criteria": [
+          {
+            "name": "Should have a degree",
+            "description": "",
+            "weight": 1.0
+          },
+          {
+            "name": "Python",
+            "description": "",
+            "weight": 1.0
+          },
+          {
+            "name": "Typescript",
+            "description": "",
+            "weight": 1.0
+          }
+        ],
+        "requires_visual_review": false
+      },
+      "status": "open",
+      "google_sheet_id": "1wHhfjQVoYeUS1vsC3sLEg7EOgjRIAXhIuqIuU5f83ec",
+      "assignment_brief_filename": "TEAM 404 - Neurox 1.0.pdf",
+      "assignment_deadline_days": null,
+      "assignment_message": null,
+      "created_at": "2026-08-19T09:00:08.977893Z"
+    },
+    {
       "id": "backend-engineer",
       "title": "Backend Engineer",
       "job_description": "We are hiring a Backend Engineer (Python) to build and operate the services behind our recruitment-automation platform: FastAPI services, data-processing pipelines, document parsing, and LLM-based evaluation. Strong Python, REST/API design, testing (pytest) and CI experience expected; PDF/document processing and LLM integration are a plus.",
@@ -79,38 +111,6 @@
       "assignment_deadline_days": null,
       "assignment_message": null,
       "created_at": "2026-08-18T06:52:55.318374Z"
-    },
-    {
-      "id": "ai-agent-intern",
-      "title": "AI Agent intern",
-      "job_description": "Role Summary - As an AI Agent Intern, you will work closely with our engineering and product teams to design, develop, and test large language model (LLM) powered agents. You will explore cutting-edge AI frameworks to automate complex tasks, build interactive digital assistants, and create smart pipelines that solve real-world problems for our users. Key Responsibilities - Design, build, and deploy autonomous AI agents using modern LLM frameworks. Write, refine, and optimize complex prompts to safely and effectively guide agent behavior. Integrate AI agents with external APIs, databases, and third-party software tools. Develop Retrieval-Augmented Generation (RAG) pipelines to provide agents with accurate, domain-specific knowledge. Design evaluation metrics to test agent performance for accuracy, hallucination rates, and efficiency.Document code, workflows, and experimental findings to share knowledge with the broader engineering team. Required Qualifications Currently pursuing (or recently graduated with) a degree in Computer Science, Artificial Intelligence, Data Science, or a related field. Strong proficiency in programming, specifically using Python or TypeScript. Solid conceptual understanding of Large Language Models (LLMs) and generative AI concepts. Familiarity with version control systems like Git and collaborative platforms like GitHub. Excellent problem-solving skills and a strong, self-driven desire to learn rapidly evolving technologies.",
-      "rubric": {
-        "job_title": "AI Agent intern",
-        "criteria": [
-          {
-            "name": "Should have a degree",
-            "description": "",
-            "weight": 1.0
-          },
-          {
-            "name": "Python",
-            "description": "",
-            "weight": 1.0
-          },
-          {
-            "name": "Typescript",
-            "description": "",
-            "weight": 1.0
-          }
-        ],
-        "requires_visual_review": false
-      },
-      "status": "open",
-      "google_sheet_id": "1wHhfjQVoYeUS1vsC3sLEg7EOgjRIAXhIuqIuU5f83ec",
-      "assignment_brief_filename": "TEAM 404 - Neurox 1.0.pdf",
-      "assignment_deadline_days": null,
-      "assignment_message": null,
-      "created_at": "2026-08-19T09:00:08.977893Z"
     }
   ],
   "summaryByJob": {
