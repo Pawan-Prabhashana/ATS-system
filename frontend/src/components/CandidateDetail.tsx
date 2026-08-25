@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import {
   DEMO_MODE,
   decideCandidate,
+  fetchAuthedBlobUrl,
   getCandidate,
   getJob,
   mediaUrl,
+  openAuthedFile,
   sendAssignment,
   type CandidateDetail as Detail,
   type Decision,
@@ -242,26 +244,40 @@ export function CandidateDetail({
 
           <div className="mt-6">
             <div className="flex items-center justify-between">
-              <Label>CV pages</Label>
-              {detail.cv_url && (
-                <a href={mediaUrl(detail.cv_url)} target="_blank" rel="noreferrer" className="text-xs text-[var(--accent-ink)] hover:underline">
+              <Label>CV</Label>
+              {detail.cv_pdf_url ? (
+                <button
+                  type="button"
+                  onClick={() => void openAuthedFile(detail.cv_pdf_url!)}
+                  className="text-xs text-[var(--accent-ink)] hover:underline"
+                >
                   Open PDF ↗
-                </a>
+                </button>
+              ) : (
+                detail.cv_url && (
+                  <a href={mediaUrl(detail.cv_url)} target="_blank" rel="noreferrer" className="text-xs text-[var(--accent-ink)] hover:underline">
+                    Open PDF ↗
+                  </a>
+                )
               )}
             </div>
-            {detail.text_extraction_quality === "low" && (
+            {detail.text_extraction_quality === "low" && detail.page_image_urls.length > 0 && (
               <p className="mt-1 text-xs" style={{ color: "var(--tier-borderline)" }}>
                 Little text extracted — likely a scanned CV; judged mainly from the images.
               </p>
             )}
             <div className="mt-2 space-y-3">
-              {detail.page_image_urls.length === 0 ? (
-                <p className="text-sm text-faint">No page images.</p>
-              ) : (
+              {detail.page_image_urls.length > 0 ? (
+                // render mode: the page-image gallery
                 detail.page_image_urls.map((url, i) => (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img key={url} src={mediaUrl(url)} alt={`Page ${i + 1}`} className="w-full rounded-xl border border-line" />
                 ))
+              ) : detail.cv_pdf_url ? (
+                // pdf_direct: embed the PDF (fetched with the session as a blob)
+                <CvPdfViewer path={detail.cv_pdf_url} />
+              ) : (
+                <p className="text-sm text-faint">No CV available.</p>
               )}
             </div>
           </div>
@@ -448,5 +464,52 @@ function Banner({ children }: { children: React.ReactNode }) {
     >
       {children}
     </div>
+  );
+}
+
+/** Embed an auth-protected CV PDF (pdf_direct mode). Fetches it with the session
+ *  as a blob, shows it in an <iframe>, and revokes the object URL on unmount. */
+function CvPdfViewer({ path }: { path: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    let live = true;
+    setError(false);
+    setUrl(null);
+    fetchAuthedBlobUrl(path)
+      .then((u) => {
+        objectUrl = u;
+        if (live) setUrl(u);
+        else URL.revokeObjectURL(u);
+      })
+      .catch(() => live && setError(true));
+    return () => {
+      live = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [path]);
+
+  if (error) {
+    return (
+      <div className="rounded-xl border border-line px-4 py-6 text-center text-sm text-faint">
+        Couldn&apos;t load the CV PDF.
+      </div>
+    );
+  }
+  if (!url) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-line px-4 py-6 text-sm text-muted">
+        <Spinner /> Loading CV…
+      </div>
+    );
+  }
+  return (
+    <iframe
+      src={url}
+      title="CV PDF"
+      className="h-[75vh] w-full rounded-xl border border-line bg-surface"
+    />
   );
 }

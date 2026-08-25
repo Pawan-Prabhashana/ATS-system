@@ -125,6 +125,20 @@ export async function openAuthedFile(path: string): Promise<void> {
   }
 }
 
+/** Fetch an auth-protected file and return an object URL for EMBEDDING (e.g. a
+ *  PDF in an <iframe> — a raw src can't send the auth token). The caller must
+ *  URL.revokeObjectURL(...) it on unmount. Throws on failure so the caller can
+ *  show an error; a 401 redirects to /login first. */
+export async function fetchAuthedBlobUrl(path: string): Promise<string> {
+  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders(), cache: "no-store" });
+  if (res.status === 401) {
+    onUnauthorized();
+    throw new Error("401: session expired.");
+  }
+  if (!res.ok) throw new Error(`${res.status}: could not load the file.`);
+  return URL.createObjectURL(await res.blob());
+}
+
 export type Recommendation = "shortlist" | "borderline" | "reject";
 
 export type CandidateStatus =
@@ -253,6 +267,9 @@ export interface CandidateDetail {
   text_extraction_quality: string | null;
   cv_url: string | null;
   page_image_urls: string[];
+  /** Auth-protected PDF stream (Phase 16). Embedded when there are no page
+   *  images (pdf_direct mode). Absent/undefined when no PDF is retrievable. */
+  cv_pdf_url?: string | null;
   job_id: string | null;
   job_title: string | null;
 }
