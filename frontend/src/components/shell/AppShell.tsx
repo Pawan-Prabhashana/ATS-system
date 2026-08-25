@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { fetchMe, getJob, logout, type Me } from "@/lib/api";
+import { DEMO_MODE, fetchMe, getJob, logout, type Me } from "@/lib/api";
 
 function deriveJobId(pathname: string): string | null {
   const m = pathname.match(/^\/jobs\/([^/]+)/);
@@ -20,6 +20,15 @@ function Brand() {
         <Image src="/Catalist-logo.jpeg" alt="Catalist" width={26} height={26} className="block h-[26px] w-[26px]" />
       </span>
       <span className="font-display text-[15px] font-medium tracking-tight">Catalist</span>
+      {DEMO_MODE && (
+        <span
+          className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em]"
+          style={{ background: "var(--accent-tint)", color: "var(--accent-ink)" }}
+          title="Frozen snapshot — interactive but not a live system"
+        >
+          Demo
+        </span>
+      )}
     </Link>
   );
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  DEMO_MODE,
   getJobSummary,
   ingestJob,
   listJobs,
@@ -271,6 +272,11 @@ function JobCard({
             <span className="text-muted">{result.skipped} already in</span>
             <span style={{ color: result.failed ? "var(--tier-reject)" : "var(--faint)" }}>{result.failed} failed</span>
           </div>
+          {DEMO_MODE && (
+            <div className="mt-1 text-[11px]" style={{ color: "var(--accent-ink)" }}>
+              Demo build — ingestion simulated (no fetch).
+            </div>
+          )}
           {result.failures.length > 0 && (
             <ul className="mt-1.5 space-y-1 text-[11px] text-muted">
               {result.failures.slice(0, 3).map((f, i) => (

@@ -3,6 +3,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  DEMO_MODE,
   getJob,
   getJobSummary,
   ingestJob,
@@ -273,8 +274,14 @@ function IngestSummary({ result, onDismiss }: { result: IngestionSummary; onDism
         </span>
         <button onClick={onDismiss} aria-label="Dismiss" className="ml-auto text-faint hover:text-ink">✕</button>
       </div>
-      {nothing && (
-        <p className="mt-1.5 text-xs text-muted">No new applicants found — the form has no submissions past what’s already ingested.</p>
+      {DEMO_MODE ? (
+        <p className="mt-1.5 text-xs" style={{ color: "var(--accent-ink)" }}>
+          Demo build — ingestion is simulated; no applicants are fetched from a form.
+        </p>
+      ) : (
+        nothing && (
+          <p className="mt-1.5 text-xs text-muted">No new applicants found — the form has no submissions past what’s already ingested.</p>
+        )
       )}
       {result.failures.length > 0 && (
         <ul className="mt-2 space-y-1 border-t border-line pt-2 text-xs text-muted">

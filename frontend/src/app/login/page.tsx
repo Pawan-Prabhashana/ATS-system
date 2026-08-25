@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { login } from "@/lib/api";
+import { DEMO_MODE, login } from "@/lib/api";
 import { Button } from "@/components/ui";
 
 /** Only allow same-origin internal redirects (defend against open-redirect). */
@@ -24,7 +24,7 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      await login(username.trim(), password);
+      await login(username.trim() || "guest", password);
       // Full navigation so the middleware re-runs with the fresh cookie.
       window.location.href = safeNext();
     } catch (err) {
@@ -50,31 +50,50 @@ export default function LoginPage() {
           <div className="overflow-hidden rounded-2xl shadow-[0_8px_30px_-8px_rgba(20,27,43,0.35)] ring-1 ring-line-2">
             <Image src="/Catalist-logo.jpeg" alt="Catalist" width={72} height={72} priority className="block h-[72px] w-[72px]" />
           </div>
-          <h1 className="mt-5 font-display text-2xl font-medium tracking-tight">Catalist</h1>
-          <p className="mt-1 text-sm text-muted">Recruit screening — sign in to continue</p>
+          <div className="mt-5 flex items-center gap-2">
+            <h1 className="font-display text-2xl font-medium tracking-tight">Catalist</h1>
+            {DEMO_MODE && (
+              <span
+                className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em]"
+                style={{ background: "var(--accent-tint)", color: "var(--accent-ink)" }}
+              >
+                Demo
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-muted">
+            {DEMO_MODE
+              ? "Demo build — enter the passcode to explore a live snapshot"
+              : "Recruit screening — sign in to continue"}
+          </p>
         </div>
 
         <div className="rounded-2xl border border-line bg-surface p-6 shadow-[0_10px_40px_-16px_rgba(20,27,43,0.28)]">
           <form onSubmit={onSubmit} className="space-y-4">
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-ink">Username</span>
-              <input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoFocus
-                autoComplete="username"
-                required
-                className="w-full rounded-lg border border-line-2 bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-[var(--accent-tint)]"
-                placeholder="admin"
-              />
-            </label>
+            {!DEMO_MODE && (
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium text-ink">Username</span>
+                <input
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoFocus
+                  autoComplete="username"
+                  required
+                  className="w-full rounded-lg border border-line-2 bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-[var(--accent-tint)]"
+                  placeholder="admin"
+                />
+              </label>
+            )}
 
             <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-ink">Password</span>
+              <span className="mb-1.5 block text-sm font-medium text-ink">
+                {DEMO_MODE ? "Passcode" : "Password"}
+              </span>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoFocus={DEMO_MODE}
                 autoComplete="current-password"
                 required
                 className="w-full rounded-lg border border-line-2 bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-[var(--accent-tint)]"

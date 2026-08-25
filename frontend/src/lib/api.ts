@@ -1,7 +1,18 @@
 // Single source of truth for talking to the Catalist backend.
-// Base URL is env-configurable; defaults to the local dev backend.
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+//
+// DEMO MODE (Phase 14): when NEXT_PUBLIC_DEMO_MODE=true every call is served
+// from a bundled snapshot + in-memory session store (see ./demo) — no network,
+// no backend. API_BASE is forced to "" so media URLs (/media/...) resolve to the
+// same-origin static files in public/. The live-backend path below is untouched.
+import * as demo from "./demo";
+
+export const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
+// Base URL is env-configurable; defaults to the local dev backend. Empty in
+// demo mode so nothing points at a backend.
+export const API_BASE = DEMO_MODE
+  ? ""
+  : process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 // --- Auth (Phase 12) -------------------------------------------------------
 // Session transport is a Bearer JWT (see app/auth.py for why not cookies). The
@@ -50,6 +61,11 @@ export interface Me {
 /** Log in; stores the session token on success. Throws with the server's
  *  message on bad credentials (a 401 here is shown inline, NOT a redirect). */
 export async function login(username: string, password: string): Promise<void> {
+  if (DEMO_MODE) {
+    demo.demoLoginCheck(password); // cosmetic passcode gate; throws on mismatch
+    setToken("demo-session"); // cookie so the Next middleware lets the app render
+    return;
+  }
   const res = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -70,15 +86,18 @@ export async function login(username: string, password: string): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
-  try {
-    await fetch(`${API_BASE}/auth/logout`, { method: "POST", headers: authHeaders() });
-  } catch {
-    /* best-effort; the token is client-side anyway */
+  if (!DEMO_MODE) {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, { method: "POST", headers: authHeaders() });
+    } catch {
+      /* best-effort; the token is client-side anyway */
+    }
   }
   clearToken();
 }
 
 export async function fetchMe(): Promise<Me> {
+  if (DEMO_MODE) return demo.demoFetchMe();
   const res = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders(), cache: "no-store" });
   return (await res.json()) as Me;
 }
@@ -86,6 +105,10 @@ export async function fetchMe(): Promise<Me> {
 /** Fetch a protected file (e.g. the assignment brief) WITH the session and open
  *  it in a new tab — plain <a href> links can't carry the Authorization header. */
 export async function openAuthedFile(path: string): Promise<void> {
+  if (DEMO_MODE) {
+    demo.demoOpenBrief();
+    return;
+  }
   // Fire-and-forget from the UI — never reject (avoid unhandled rejections).
   try {
     const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders(), cache: "no-store" });
@@ -257,12 +280,25 @@ export interface BulkSendResult {
   failed_count: number;
 }
 
-/** Prefix a backend-relative path (e.g. /media/...) with the API base. */
+/** Prefix a backend-relative path (e.g. /media/...) with the API base. In demo
+ *  mode API_BASE is "" so this returns a same-origin path served from public/. */
 export function mediaUrl(path: string): string {
   return `${API_BASE}${path}`;
 }
 
+/** Wrap a synchronous demo result as a Promise so a sync throw becomes a
+ *  rejection (matching the real network functions callers already await). */
+function demoCall<T>(fn: () => T): Promise<T> {
+  return Promise.resolve().then(fn);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (DEMO_MODE) {
+    // Safety net: no request() call should be reached in demo mode (every public
+    // function branches to ./demo first). If one ever is, fail loud rather than
+    // silently hit a backend.
+    throw new Error("Demo mode: network requests are disabled.");
+  }
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
@@ -291,18 +327,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // -- Jobs -------------------------------------------------------------------
 export function listJobs(): Promise<Job[]> {
+  if (DEMO_MODE) return demoCall(() => demo.demoListJobs());
   return request<Job[]>("/jobs");
 }
 
 export function getJob(id: string): Promise<Job> {
+  if (DEMO_MODE) return demoCall(() => demo.demoGetJob(id));
   return request<Job>(`/jobs/${encodeURIComponent(id)}`);
 }
 
 export function createJob(payload: JobCreatePayload): Promise<Job> {
+  if (DEMO_MODE) return demoCall(() => demo.demoCreateJob(payload));
   return request<Job>("/jobs", { method: "POST", body: JSON.stringify(payload) });
 }
 
 export function updateJob(id: string, patch: JobUpdatePayload): Promise<Job> {
+  if (DEMO_MODE) return demoCall(() => demo.demoUpdateJob(id, patch));
   return request<Job>(`/jobs/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify(patch),
@@ -310,6 +350,7 @@ export function updateJob(id: string, patch: JobUpdatePayload): Promise<Job> {
 }
 
 export function closeJob(id: string): Promise<Job> {
+  if (DEMO_MODE) return demoCall(() => demo.demoCloseJob(id));
   return request<Job>(`/jobs/${encodeURIComponent(id)}/close`, { method: "POST" });
 }
 
@@ -319,6 +360,7 @@ export function briefUrl(id: string): string {
 }
 
 export async function uploadBrief(id: string, file: File): Promise<Job> {
+  if (DEMO_MODE) return demo.demoUploadBrief(id, file.name);
   const fd = new FormData();
   fd.append("file", file);
   const res = await fetch(briefUrl(id), {
@@ -345,6 +387,7 @@ export async function uploadBrief(id: string, file: File): Promise<Job> {
 }
 
 export function deleteBrief(id: string): Promise<Job> {
+  if (DEMO_MODE) return demoCall(() => demo.demoDeleteBrief(id));
   return request<Job>(`/jobs/${encodeURIComponent(id)}/assignment-brief`, {
     method: "DELETE",
   });
@@ -354,6 +397,7 @@ export function testIntake(
   id: string,
   googleSheetId?: string | null,
 ): Promise<IntakeProbeResult> {
+  if (DEMO_MODE) return demoCall(() => demo.demoTestIntake());
   return request<IntakeProbeResult>(`/jobs/${encodeURIComponent(id)}/test-intake`, {
     method: "POST",
     body: JSON.stringify({ google_sheet_id: googleSheetId?.trim() || null }),
@@ -361,10 +405,12 @@ export function testIntake(
 }
 
 export function getJobSummary(id: string): Promise<JobSummary> {
+  if (DEMO_MODE) return demoCall(() => demo.demoGetJobSummary(id));
   return request<JobSummary>(`/jobs/${encodeURIComponent(id)}/summary`);
 }
 
 export function ingestJob(id: string): Promise<IngestionSummary> {
+  if (DEMO_MODE) return demoCall(() => demo.demoIngestJob(id));
   return request<IngestionSummary>(`/jobs/${encodeURIComponent(id)}/ingest`, {
     method: "POST",
   });
@@ -374,6 +420,7 @@ export function listJobCandidates(
   id: string,
   opts: { tier?: Recommendation; status?: CandidateStatus } = {},
 ): Promise<CandidateRecord[]> {
+  if (DEMO_MODE) return demoCall(() => demo.demoListJobCandidates(id, opts));
   const params = new URLSearchParams();
   if (opts.tier) params.set("tier", opts.tier);
   if (opts.status) params.set("status", opts.status);
@@ -388,6 +435,7 @@ export function bulkSendAssignments(
   candidateIds: string[] | null,
   force = false,
 ): Promise<BulkSendResult> {
+  if (DEMO_MODE) return demoCall(() => demo.demoBulkSend(id, candidateIds));
   return request<BulkSendResult>(
     `/jobs/${encodeURIComponent(id)}/send-assignments`,
     { method: "POST", body: JSON.stringify({ candidate_ids: candidateIds, force }) },
@@ -396,6 +444,7 @@ export function bulkSendAssignments(
 
 // -- Candidates -------------------------------------------------------------
 export function getCandidate(id: string): Promise<CandidateDetail> {
+  if (DEMO_MODE) return demoCall(() => demo.demoGetCandidate(id));
   return request<CandidateDetail>(`/candidates/${encodeURIComponent(id)}`);
 }
 
@@ -406,6 +455,7 @@ export function decideCandidate(
   decision: DecisionInput,
   note: string | null = null,
 ): Promise<CandidateDetail> {
+  if (DEMO_MODE) return demoCall(() => demo.demoDecideCandidate(id, decision, note));
   return request<CandidateDetail>(
     `/candidates/${encodeURIComponent(id)}/decision`,
     { method: "PATCH", body: JSON.stringify({ decision, note }) },
@@ -416,6 +466,7 @@ export function sendAssignment(
   id: string,
   force = false,
 ): Promise<CandidateDetail> {
+  if (DEMO_MODE) return demoCall(() => demo.demoSendAssignment(id));
   return request<CandidateDetail>(
     `/candidates/${encodeURIComponent(id)}/send-assignment`,
     { method: "POST", body: JSON.stringify({ force }) },

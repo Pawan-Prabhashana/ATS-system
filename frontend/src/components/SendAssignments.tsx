@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  DEMO_MODE,
   bulkSendAssignments,
   deleteBrief,
   getJob,
@@ -345,6 +346,11 @@ function ResultSummary({ result }: { result: BulkSendResult }) {
           <span className="font-mono font-semibold">{result.failed_count}</span> failed
         </span>
       </div>
+      {DEMO_MODE && (
+        <p className="mt-2 text-xs" style={{ color: "var(--accent-ink)" }}>
+          Demo build — emails are simulated, not actually sent.
+        </p>
+      )}
       {result.failed_count > 0 && (
         <div className="mt-3 rounded-lg p-2.5 text-xs" style={{ background: "var(--tier-reject-tint)", color: "var(--tier-reject)" }}>
           <div className="mb-1 font-medium">Failed — needs attention</div>

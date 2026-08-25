@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  DEMO_MODE,
   decideCandidate,
   getCandidate,
   getJob,
@@ -343,6 +344,11 @@ function ReviewState({
           note={null}
         />
         <p className="mt-1 text-xs text-muted">Due {formatDate(c.assignment_deadline)}.</p>
+        {DEMO_MODE && (
+          <p className="mt-1 text-xs" style={{ color: "var(--accent-ink)" }}>
+            Demo build — the email is simulated, not actually sent.
+          </p>
+        )}
         <div className="mt-3">
           <Button size="sm" variant="ghost" loading={busy} onClick={onResend}>Resend</Button>
         </div>
