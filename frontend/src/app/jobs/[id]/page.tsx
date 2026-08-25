@@ -6,13 +6,13 @@ import {
   DEMO_MODE,
   getJob,
   getJobSummary,
-  ingestJob,
   listJobCandidates,
+  siteIngest,
   type CandidateRecord,
-  type IngestionSummary,
   type Job,
   type JobSummary,
   type Recommendation,
+  type SiteIngestionSummary,
 } from "@/lib/api";
 import { DECISION_META, TierBar, TIER_META, VerdictTrack } from "@/components/verdict";
 import { Button, Card, Label, Spinner } from "@/components/ui";
@@ -46,7 +46,7 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
   const [openId, setOpenId] = useState<string | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
   const [ingesting, setIngesting] = useState(false);
-  const [ingestResult, setIngestResult] = useState<IngestionSummary | null>(null);
+  const [ingestResult, setIngestResult] = useState<SiteIngestionSummary | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -95,17 +95,16 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
     setError(null);
     setIngestResult(null);
     try {
-      const res = await ingestJob(id);
+      const res = await siteIngest();
       setIngestResult(res);
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Ingestion failed.");
+      setError(e instanceof Error ? e.message : "Couldn't pull applicants.");
     } finally {
       setIngesting(false);
     }
   }
 
-  const connected = Boolean(job?.google_sheet_id);
   const readyCount = summary?.by_status.shortlisted ?? 0;
 
   return (
@@ -128,13 +127,12 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
             )}
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs">
-            <span
-              className="inline-flex items-center gap-1.5"
-              style={{ color: connected ? "var(--tier-shortlist)" : "var(--muted)" }}
-            >
-              <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: connected ? "var(--tier-shortlist)" : "var(--faint)" }} />
-              {connected ? "Connected to a form" : "Not connected"}
-            </span>
+            {job?.role_key && (
+              <span className="inline-flex items-center gap-1.5 text-muted">
+                <span className="text-faint">Serves form role</span>
+                <span className="rounded border border-line-2 px-1.5 py-0.5 font-medium text-ink">{job.role_key}</span>
+              </span>
+            )}
             <Link href={`/jobs/${id}/settings`} className="text-[var(--accent-ink)] hover:underline">
               Settings
             </Link>
@@ -180,7 +178,7 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
               </div>
               <div className="mt-3 border-t border-line pt-3">
                 <Button size="sm" variant="secondary" loading={ingesting} onClick={onIngest} className="w-full">
-                  Run ingestion
+                  Pull applicants
                 </Button>
               </div>
             </Card>
@@ -230,10 +228,10 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
         ) : (all?.length ?? 0) === 0 ? (
           <Card className="px-6 py-14 text-center">
             <h2 className="font-display text-base font-medium">No candidates yet</h2>
-            <p className="mt-1 text-sm text-muted">Run ingestion to pull and score applicants for this role.</p>
+            <p className="mt-1 text-sm text-muted">Pull applicants to fetch and score everyone who picked this role on the form.</p>
             <div className="mt-4">
               <Button size="sm" loading={ingesting} onClick={onIngest}>
-                Run ingestion
+                Pull applicants
               </Button>
             </div>
           </Card>
@@ -271,27 +269,33 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
   );
 }
 
-function IngestSummary({ result, onDismiss }: { result: IngestionSummary; onDismiss: () => void }) {
-  const nothing = result.processed === 0 && result.skipped === 0 && result.failed === 0;
+function IngestSummary({ result, onDismiss }: { result: SiteIngestionSummary; onDismiss: () => void }) {
+  const held = Object.entries(result.held_by_role);
+  const nothing = result.processed === 0 && result.skipped_duplicate === 0 && held.length === 0 && result.failed === 0;
   return (
     <div className="mt-4 rounded-xl border border-line bg-surface p-3.5 shadow-[var(--shadow-sm)]">
       <div className="flex items-center gap-4 text-sm">
-        <span className="font-medium">Ingestion complete</span>
+        <span className="font-medium">Pulled applicants</span>
         <span className="flex items-center gap-3 font-mono text-xs tabular-nums">
           <span style={{ color: "var(--tier-shortlist)" }}>{result.processed} new</span>
-          <span className="text-muted">{result.skipped} already in</span>
+          <span className="text-muted">{result.skipped_duplicate} already in</span>
           <span style={{ color: result.failed ? "var(--tier-reject)" : "var(--faint)" }}>{result.failed} failed</span>
         </span>
         <button onClick={onDismiss} aria-label="Dismiss" className="ml-auto text-faint hover:text-ink">✕</button>
       </div>
       {DEMO_MODE ? (
         <p className="mt-1.5 text-xs" style={{ color: "var(--accent-ink)" }}>
-          Demo build — ingestion is simulated; no applicants are fetched from a form.
+          Demo build — pulling is simulated; no applicants are fetched from a form.
         </p>
       ) : (
         nothing && (
-          <p className="mt-1.5 text-xs text-muted">No new applicants found — the form has no submissions past what’s already ingested.</p>
+          <p className="mt-1.5 text-xs text-muted">No new applicants — everyone on the form is already ingested.</p>
         )
+      )}
+      {held.length > 0 && (
+        <p className="mt-1.5 text-xs" style={{ color: "var(--tier-borderline)" }}>
+          {held.map(([role, count]) => `${count} for ${role}`).join(", ")} — waiting on a job (set them up from the Jobs dashboard).
+        </p>
       )}
       {result.failures.length > 0 && (
         <ul className="mt-2 space-y-1 border-t border-line pt-2 text-xs text-muted">

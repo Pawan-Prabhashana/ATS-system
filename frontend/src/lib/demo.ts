@@ -15,14 +15,15 @@ import type {
   CandidateRecord,
   CandidateStatus,
   DecisionInput,
-  IngestionSummary,
+  IntakeStatus,
   Job,
   JobCreatePayload,
   JobSummary,
   JobUpdatePayload,
   Me,
   Recommendation,
-  IntakeProbeResult,
+  RoleInfo,
+  SiteIngestionSummary,
 } from "./api";
 
 type Snapshot = {
@@ -208,17 +209,40 @@ export const demoBulkSend = (
   };
 };
 
-export const demoIngestJob = (id: string): IngestionSummary => {
-  const skipped = (candidatesByJob[id] ?? []).length;
+export const demoSiteIngest = (): SiteIngestionSummary => {
+  // Frozen snapshot — everyone is already in; nothing new is fetched.
+  const total = Object.values(candidatesByJob).reduce((n, rows) => n + rows.length, 0);
   return {
     processed: 0,
-    skipped,
+    processed_by_job: {},
+    skipped_duplicate: total,
+    held_total: 0,
+    held_by_role: {},
     failed: 0,
-    processed_candidate_ids: [],
-    skipped_candidate_ids: (candidatesByJob[id] ?? []).map((r) => r.candidate.id),
     failures: [],
+    processed_candidate_ids: [],
   };
 };
+
+export const demoListRoles = (): RoleInfo[] =>
+  jobs
+    .map((j) => ({
+      role: j.role_key || j.title,
+      applicant_count: (candidatesByJob[j.id] ?? []).length,
+      has_job: true,
+      job_id: j.id,
+      job_title: j.title,
+    }))
+    .sort((a, b) => a.role.localeCompare(b.role));
+
+export const demoIntakeStatus = (): IntakeStatus => ({
+  connected: true,
+  row_count: Object.values(candidatesByJob).reduce((n, rows) => n + rows.length, 0),
+  role_column_detected: true,
+  detected_columns: { role: "Which role?" },
+  distinct_roles: jobs.map((j) => j.role_key || j.title).sort(),
+  error: null,
+});
 
 export const demoCreateJob = (payload: JobCreatePayload): Job => {
   const id = slugify(payload.title);
@@ -232,7 +256,8 @@ export const demoCreateJob = (payload: JobCreatePayload): Job => {
       requires_visual_review: payload.rubric.requires_visual_review ?? false,
     },
     status: payload.status ?? "open",
-    google_sheet_id: payload.google_sheet_id ?? null,
+    role_key: payload.role_key || payload.title,
+    google_sheet_id: null,
     assignment_brief_filename: null,
     assignment_deadline_days: null,
     assignment_message: null,
@@ -270,13 +295,6 @@ export const demoDeleteBrief = (id: string): Job => {
   j!.assignment_brief_filename = null;
   return clone(j!);
 };
-
-export const demoTestIntake = (): IntakeProbeResult => ({
-  connected: false,
-  row_count: 0,
-  detected_columns: {},
-  error: "Demo build — live Google intake isn't available in the snapshot.",
-});
 
 export const demoOpenBrief = (): void => {
   // No-op: the assignment brief file isn't bundled in the snapshot. The Preview

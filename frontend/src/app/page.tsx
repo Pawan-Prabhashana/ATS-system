@@ -5,12 +5,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   DEMO_MODE,
+  getIntakeStatus,
   getJobSummary,
-  ingestJob,
   listJobs,
-  type IngestionSummary,
+  listRoles,
+  siteIngest,
+  type IntakeStatus,
   type Job,
   type JobSummary,
+  type RoleInfo,
+  type SiteIngestionSummary,
 } from "@/lib/api";
 import { TierBar, TIER_META, TIER_ORDER } from "@/components/verdict";
 import { Button, Card, Spinner, StatTile } from "@/components/ui";
@@ -19,10 +23,13 @@ export default function JobsOverview() {
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [summaries, setSummaries] = useState<Record<string, JobSummary>>({});
+  const [roles, setRoles] = useState<RoleInfo[]>([]);
+  const [status, setStatus] = useState<IntakeStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<Record<string, boolean>>({});
-  const [results, setResults] = useState<Record<string, IngestionSummary>>({});
-  const [ingestErr, setIngestErr] = useState<Record<string, string>>({});
+
+  const [pulling, setPulling] = useState(false);
+  const [pullResult, setPullResult] = useState<SiteIngestionSummary | null>(null);
+  const [pullError, setPullError] = useState<string | null>(null);
 
   const loadSummary = useCallback(async (id: string) => {
     try {
@@ -39,6 +46,8 @@ export default function JobsOverview() {
       const js = await listJobs();
       setJobs(js);
       js.forEach((j) => void loadSummary(j.id));
+      listRoles().then(setRoles).catch(() => setRoles([]));
+      getIntakeStatus().then(setStatus).catch(() => setStatus(null));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load jobs. Is the backend running?");
       setJobs([]);
@@ -49,51 +58,56 @@ export default function JobsOverview() {
     void load();
   }, [load]);
 
-  // Aggregate readout across every job (updates as summaries stream in).
+  async function onPull() {
+    setPulling(true);
+    setPullError(null);
+    setPullResult(null);
+    try {
+      setPullResult(await siteIngest());
+      await load();
+    } catch (e) {
+      setPullError(e instanceof Error ? e.message : "Couldn't pull applicants.");
+    } finally {
+      setPulling(false);
+    }
+  }
+
   const totals = useMemo(() => {
     const list = jobs ?? [];
     const vals = Object.values(summaries);
     return {
       openRoles: list.filter((j) => j.status === "open").length,
-      roles: list.length,
       candidates: vals.reduce((n, s) => n + s.total, 0),
       shortlisted: vals.reduce((n, s) => n + s.by_status.shortlisted, 0),
       sent: vals.reduce((n, s) => n + s.by_status.assignment_sent, 0),
     };
   }, [jobs, summaries]);
 
-  async function onIngest(id: string) {
-    setBusy((b) => ({ ...b, [id]: true }));
-    setIngestErr((m) => ({ ...m, [id]: "" }));
-    try {
-      const res = await ingestJob(id);
-      setResults((r) => ({ ...r, [id]: res }));
-      await loadSummary(id);
-    } catch (e) {
-      setIngestErr((m) => ({ ...m, [id]: e instanceof Error ? e.message : "Ingestion failed." }));
-    } finally {
-      setBusy((b) => ({ ...b, [id]: false }));
-    }
-  }
-
+  const needsSetup = roles.filter((r) => !r.has_job);
   const hasJobs = (jobs?.length ?? 0) > 0;
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
-      {/* Header + New job */}
-      <div className="flex items-end justify-between gap-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-medium tracking-tight">Jobs</h1>
-          <p className="mt-1 text-sm text-muted">Open roles and their candidate pipelines.</p>
+          <p className="mt-1 text-sm text-muted">One application form, routed to roles automatically.</p>
+          {status && <IntakeStatusLine status={status} />}
         </div>
-        <Link href="/jobs/new">
-          <Button size="sm">
-            <IconPlus /> New job
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={onPull} loading={pulling}>
+            <IconPull /> Pull applicants
           </Button>
-        </Link>
+          <Link href="/jobs/new">
+            <Button size="sm" variant="secondary">
+              <IconPlus /> New job
+            </Button>
+          </Link>
+        </div>
       </div>
 
-      {/* Overview strip — aggregate readout across all jobs */}
+      {/* Overview strip */}
       {hasJobs && (
         <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatTile label="Open roles" value={jobs === null ? "—" : totals.openRoles} icon={<IconBriefcase />} tone="var(--accent)" />
@@ -104,88 +118,189 @@ export default function JobsOverview() {
       )}
 
       {error && (
-        <div
-          className="mt-4 rounded-lg px-3 py-2 text-sm"
-          style={{ color: "var(--tier-reject)", background: "var(--tier-reject-tint)" }}
-        >
+        <div className="mt-4 rounded-lg px-3 py-2 text-sm" style={{ color: "var(--tier-reject)", background: "var(--tier-reject-tint)" }}>
           {error}
         </div>
       )}
+      {pullError && (
+        <div className="mt-4 rounded-lg px-3 py-2 text-sm" style={{ color: "var(--tier-reject)", background: "var(--tier-reject-tint)" }}>
+          {pullError}
+        </div>
+      )}
+      {pullResult && <PullSummary result={pullResult} onDismiss={() => setPullResult(null)} />}
 
-      {jobs === null ? (
-        <div className="mt-6 flex items-center gap-2 py-16 text-muted">
-          <Spinner /> Loading jobs…
+      {/* Roles from the application form */}
+      {roles.length > 0 && (
+        <section className="mt-8">
+          <div className="flex items-baseline gap-2">
+            <h2 className="font-display text-base font-medium">Roles from the application form</h2>
+            {needsSetup.length > 0 && (
+              <span className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ background: "var(--tier-borderline-tint)", color: "var(--tier-borderline)" }}>
+                {needsSetup.length} need{needsSetup.length === 1 ? "s" : ""} setup
+              </span>
+            )}
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+            {roles.map((r) => (
+              <RoleCard key={r.role} role={r} onSetup={() => router.push(`/jobs/new?role=${encodeURIComponent(r.role)}`)} onOpen={(id) => router.push(`/jobs/${id}`)} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Configured jobs */}
+      <section className="mt-8">
+        {hasJobs && <h2 className="font-display text-base font-medium">Configured jobs</h2>}
+        {jobs === null ? (
+          <div className="mt-3 flex items-center gap-2 py-16 text-muted">
+            <Spinner /> Loading jobs…
+          </div>
+        ) : jobs.length === 0 ? (
+          <Card className="mt-3 px-6 py-16 text-center">
+            <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[var(--accent-tint)] text-[var(--accent-ink)]">
+              <IconBriefcase />
+            </div>
+            <h2 className="mt-4 font-display text-lg font-medium">No jobs yet</h2>
+            <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted">
+              {needsSetup.length > 0
+                ? "You have applicants for roles above — click “Set up this role” to create the job that scores them."
+                : "Create a job for each role on your application form, then Pull applicants."}
+            </p>
+            <div className="mt-5">
+              <Link href="/jobs/new">
+                <Button>
+                  <IconPlus /> New job
+                </Button>
+              </Link>
+            </div>
+          </Card>
+        ) : (
+          <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {jobs.map((job) => (
+              <JobCard key={job.id} job={job} summary={summaries[job.id]} onOpen={() => router.push(`/jobs/${job.id}`)} />
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function IntakeStatusLine({ status }: { status: IntakeStatus }) {
+  const ok = status.connected && status.role_column_detected;
+  const color = ok ? "var(--tier-shortlist)" : status.connected ? "var(--tier-borderline)" : "var(--tier-reject)";
+  const text = !status.connected
+    ? `Application form not connected${status.error ? ` — ${status.error}` : ""}`
+    : !status.role_column_detected
+      ? "Form connected, but the role column wasn't detected"
+      : `Form connected · ${status.row_count} responses · ${status.distinct_roles.length} roles`;
+  return (
+    <div className="mt-1.5 inline-flex items-center gap-1.5 text-xs" style={{ color }}>
+      <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+      {text}
+    </div>
+  );
+}
+
+function RoleCard({ role, onSetup, onOpen }: { role: RoleInfo; onSetup: () => void; onOpen: (id: string) => void }) {
+  const needs = !role.has_job;
+  return (
+    <Card
+      className="flex items-center gap-3 p-3.5"
+      style={needs ? { borderColor: "color-mix(in srgb, var(--tier-borderline) 45%, transparent)" } : undefined}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium">{role.role}</div>
+        <div className="mt-0.5 font-mono text-[11px] text-faint tabular-nums">
+          {role.applicant_count} applicant{role.applicant_count === 1 ? "" : "s"}
         </div>
-      ) : jobs.length === 0 ? (
-        <Card className="mt-6 px-6 py-16 text-center">
-          <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[var(--accent-tint)] text-[var(--accent-ink)]">
-            <IconBriefcase />
-          </div>
-          <h2 className="mt-4 font-display text-lg font-medium">Create your first job</h2>
-          <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted">
-            A job holds a description, the criteria you score against, and a link to its Google Form.
-            Candidates are ingested and AI-scored per role.
-          </p>
-          <div className="mt-5">
-            <Link href="/jobs/new">
-              <Button>
-                <IconPlus /> New job
-              </Button>
-            </Link>
-          </div>
-        </Card>
+      </div>
+      {needs ? (
+        <Button size="sm" onClick={onSetup}>
+          Set up this role
+        </Button>
       ) : (
-        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {jobs.map((job) => (
-            <JobCard
-              key={job.id}
-              job={job}
-              summary={summaries[job.id]}
-              busy={!!busy[job.id]}
-              result={results[job.id]}
-              ingestError={ingestErr[job.id]}
-              onOpen={() => router.push(`/jobs/${job.id}`)}
-              onIngest={() => void onIngest(job.id)}
-            />
-          ))}
+        <button onClick={() => role.job_id && onOpen(role.job_id)} className="shrink-0 text-xs font-medium text-[var(--accent-ink)] hover:underline">
+          Open pipeline →
+        </button>
+      )}
+    </Card>
+  );
+}
+
+function PullSummary({ result, onDismiss }: { result: SiteIngestionSummary; onDismiss: () => void }) {
+  const held = Object.entries(result.held_by_role);
+  const nothing = result.processed === 0 && result.skipped_duplicate === 0 && held.length === 0;
+  return (
+    <div className="mt-4 rounded-xl border border-line bg-surface p-4 shadow-[var(--shadow-sm)]">
+      <div className="flex items-center gap-4">
+        <span className="text-sm font-medium">Pulled applicants</span>
+        <span className="flex items-center gap-3 font-mono text-xs tabular-nums">
+          <span style={{ color: "var(--tier-shortlist)" }}>{result.processed} new</span>
+          <span className="text-muted">{result.skipped_duplicate} already in</span>
+          <span style={{ color: result.failed ? "var(--tier-reject)" : "var(--faint)" }}>{result.failed} failed</span>
+        </span>
+        <button onClick={onDismiss} aria-label="Dismiss" className="ml-auto text-faint hover:text-ink">✕</button>
+      </div>
+
+      {DEMO_MODE && (
+        <p className="mt-1.5 text-xs" style={{ color: "var(--accent-ink)" }}>
+          Demo build — pulling is simulated; no applicants are fetched from a form.
+        </p>
+      )}
+      {nothing && !DEMO_MODE && (
+        <p className="mt-1.5 text-xs text-muted">No new applicants — everyone on the form is already ingested.</p>
+      )}
+
+      {held.length > 0 && (
+        <div className="mt-3 border-t border-line pt-3">
+          <div className="text-xs font-medium" style={{ color: "var(--tier-borderline)" }}>
+            Applicants waiting for a job to be set up
+          </div>
+          <ul className="mt-2 space-y-1.5">
+            {held.map(([role, count]) => (
+              <li key={role} className="flex items-center gap-3 text-sm">
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="font-mono tabular-nums" style={{ color: "var(--tier-borderline)" }}>{count}</span>{" "}
+                  applicant{count === 1 ? "" : "s"} for <span className="font-medium">{role}</span>
+                </span>
+                <Link href={`/jobs/new?role=${encodeURIComponent(role)}`}>
+                  <Button size="sm" variant="secondary">Set up this role</Button>
+                </Link>
+              </li>
+            ))}
+          </ul>
         </div>
+      )}
+
+      {result.failures.length > 0 && (
+        <ul className="mt-2 space-y-1 border-t border-line pt-2 text-xs text-muted">
+          {result.failures.slice(0, 5).map((f, i) => (
+            <li key={`${f.submission_ref}-${i}`} className="truncate">
+              <span style={{ color: "var(--tier-reject)" }}>•</span>{" "}
+              <span className="text-ink">{f.name || f.submission_ref}</span> — {f.reason}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
 }
 
-function JobCard({
-  job,
-  summary,
-  busy,
-  result,
-  ingestError,
-  onOpen,
-  onIngest,
-}: {
-  job: Job;
-  summary: JobSummary | undefined;
-  busy: boolean;
-  result?: IngestionSummary;
-  ingestError?: string;
-  onOpen: () => void;
-  onIngest: () => void;
-}) {
+function JobCard({ job, summary, onOpen }: { job: Job; summary: JobSummary | undefined; onOpen: () => void }) {
   const total = summary?.total ?? 0;
-  const connected = Boolean(job.google_sheet_id);
   const open = job.status === "open";
 
   return (
     <Card elevated onClick={onOpen} className="group flex cursor-pointer flex-col p-5">
-      {/* Title + status */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="truncate font-display text-[17px] font-medium tracking-tight decoration-[var(--line-2)] underline-offset-4 group-hover:underline">
+          <h3 className="truncate font-display text-[17px] font-medium tracking-tight decoration-[var(--line-2)] underline-offset-4 group-hover:underline">
             {job.title}
-          </h2>
-          <div className="mt-1.5 inline-flex items-center gap-1.5 text-xs" style={{ color: connected ? "var(--tier-shortlist)" : "var(--muted)" }}>
-            <IconLink muted={!connected} />
-            {connected ? "Connected to a form" : "Not connected"}
+          </h3>
+          <div className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-muted">
+            <IconTag />
+            <span className="truncate">{job.role_key || "—"}</span>
           </div>
         </div>
         <span
@@ -200,7 +315,6 @@ function JobCard({
         </span>
       </div>
 
-      {/* Tier mini-dashboard */}
       <div className="mt-4 flex-1">
         {summary === undefined ? (
           <div className="space-y-2.5">
@@ -209,7 +323,7 @@ function JobCard({
           </div>
         ) : total === 0 ? (
           <div className="rounded-lg border border-dashed border-line-2 bg-surface-2/40 px-3 py-3 text-xs text-muted">
-            No candidates yet — run ingestion to pull applicants.
+            No candidates yet — Pull applicants to fetch and score them.
           </div>
         ) : (
           <>
@@ -234,64 +348,18 @@ function JobCard({
         )}
       </div>
 
-      {/* Actions */}
       <div className="mt-4 flex items-center gap-2 border-t border-line pt-3">
         <span className="text-sm font-medium text-[var(--accent-ink)] group-hover:underline">Open pipeline →</span>
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            size="sm"
-            variant="ghost"
-            loading={busy}
-            onClick={(e) => {
-              e.stopPropagation();
-              onIngest();
-            }}
-          >
-            Run ingestion
-          </Button>
-          <Link
-            href={`/jobs/${job.id}/settings`}
-            onClick={(e) => e.stopPropagation()}
-            aria-label="Job settings"
-            title="Settings"
-            className="grid h-8 w-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-ink"
-          >
-            <IconGear />
-          </Link>
-        </div>
+        <Link
+          href={`/jobs/${job.id}/settings`}
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Job settings"
+          title="Settings"
+          className="ml-auto grid h-8 w-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+        >
+          <IconGear />
+        </Link>
       </div>
-      {ingestError && (
-        <div className="mt-2 rounded-lg px-2.5 py-1.5 text-xs" style={{ color: "var(--tier-reject)", background: "var(--tier-reject-tint)" }}>
-          {ingestError}
-        </div>
-      )}
-      {result && (
-        <div className="mt-2">
-          <div className="flex items-center gap-3 font-mono text-[11px] tabular-nums">
-            <span style={{ color: "var(--tier-shortlist)" }}>{result.processed} new</span>
-            <span className="text-muted">{result.skipped} already in</span>
-            <span style={{ color: result.failed ? "var(--tier-reject)" : "var(--faint)" }}>{result.failed} failed</span>
-          </div>
-          {DEMO_MODE && (
-            <div className="mt-1 text-[11px]" style={{ color: "var(--accent-ink)" }}>
-              Demo build — ingestion simulated (no fetch).
-            </div>
-          )}
-          {result.failures.length > 0 && (
-            <ul className="mt-1.5 space-y-1 text-[11px] text-muted">
-              {result.failures.slice(0, 3).map((f, i) => (
-                <li key={`${f.submission_ref}-${i}`} className="truncate">
-                  <span style={{ color: "var(--tier-reject)" }}>•</span>{" "}
-                  <span className="text-ink">{f.name || f.submission_ref}</span> — {f.reason}
-                </li>
-              ))}
-              {result.failures.length > 3 && (
-                <li className="text-faint">+{result.failures.length - 3} more — open the pipeline for details</li>
-              )}
-            </ul>
-          )}
-        </div>
-      )}
     </Card>
   );
 }
@@ -302,6 +370,13 @@ function IconPlus() {
   return (
     <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" {...S}>
       <path d="M8 3.5v9M3.5 8h9" />
+    </svg>
+  );
+}
+function IconPull() {
+  return (
+    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" {...S}>
+      <path d="M8 2.5v7M5 6.5 8 9.5l3-3M3 12.5h10" />
     </svg>
   );
 }
@@ -335,10 +410,11 @@ function IconSend() {
     </svg>
   );
 }
-function IconLink({ muted }: { muted?: boolean }) {
+function IconTag() {
   return (
-    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" {...S} strokeWidth={muted ? 1.5 : 1.7}>
-      <path d="M6.5 9.5l3-3M6 5.5H4.5a2.5 2.5 0 0 0 0 5H6M10 10.5h1.5a2.5 2.5 0 0 0 0-5H10" />
+    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" {...S}>
+      <path d="M2.5 7.5v-4a1 1 0 0 1 1-1h4l6 6-5 5-6-6z" />
+      <circle cx="5.5" cy="5.5" r=".9" fill="currentColor" stroke="none" />
     </svg>
   );
 }

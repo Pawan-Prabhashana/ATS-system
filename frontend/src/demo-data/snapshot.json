@@ -31,7 +31,8 @@
       "assignment_brief_filename": "TEAM 404 - Neurox 1.0.pdf",
       "assignment_deadline_days": null,
       "assignment_message": null,
-      "created_at": "2026-08-19T09:00:08.977893Z"
+      "created_at": "2026-08-19T09:00:08.977893Z",
+      "role_key": "AI Agent intern"
     },
     {
       "id": "backend-engineer",
@@ -73,7 +74,8 @@
       "assignment_brief_filename": null,
       "assignment_deadline_days": null,
       "assignment_message": null,
-      "created_at": "2026-08-18T06:52:55.318120Z"
+      "created_at": "2026-08-18T06:52:55.318120Z",
+      "role_key": "Backend Engineer"
     },
     {
       "id": "graphic-designer",
@@ -110,7 +112,8 @@
       "assignment_brief_filename": null,
       "assignment_deadline_days": null,
       "assignment_message": null,
-      "created_at": "2026-08-18T06:52:55.318374Z"
+      "created_at": "2026-08-18T06:52:55.318374Z",
+      "role_key": "Graphic Designer"
     }
   ],
   "summaryByJob": {

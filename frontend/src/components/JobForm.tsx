@@ -1,15 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  closeJob,
-  createJob,
-  testIntake,
-  updateJob,
-  type IntakeProbeResult,
-  type Job,
-} from "@/lib/api";
+import { closeJob, createJob, listRoles, updateJob, type Job } from "@/lib/api";
 import { Button, Card, Field, Label, TextArea, TextInput } from "@/components/ui";
 
 interface Row {
@@ -20,23 +13,41 @@ interface Row {
 
 const BLANK: Row = { name: "", description: "", weight: 1 };
 
-export function JobForm({ initial, jobId }: { initial?: Job; jobId?: string }) {
+export function JobForm({
+  initial,
+  jobId,
+  presetRoleKey,
+}: {
+  initial?: Job;
+  jobId?: string;
+  /** From "Set up this role": the exact detected dropdown value, locked. */
+  presetRoleKey?: string;
+}) {
   const router = useRouter();
   const isEdit = Boolean(jobId);
 
-  const [title, setTitle] = useState(initial?.title ?? "");
+  const [title, setTitle] = useState(initial?.title ?? presetRoleKey ?? "");
   const [jd, setJd] = useState(initial?.job_description ?? "");
   const [rows, setRows] = useState<Row[]>(
     initial?.rubric.criteria.map((c) => ({ ...c })) ?? [{ ...BLANK }],
   );
   const [vision, setVision] = useState(initial?.rubric.requires_visual_review ?? false);
-  const [sheetId, setSheetId] = useState(initial?.google_sheet_id ?? "");
+
+  // The exact form dropdown value this job serves. Locked when setting up a
+  // detected role — the admin never types or maps it.
+  const [roleKey, setRoleKey] = useState(initial?.role_key ?? presetRoleKey ?? "");
+  const locked = Boolean(presetRoleKey) && !isEdit;
+  const [roles, setRoles] = useState<string[]>([]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [probe, setProbe] = useState<IntakeProbeResult | null>(null);
-  const [testing, setTesting] = useState(false);
+  useEffect(() => {
+    if (locked) return;
+    listRoles()
+      .then((rs) => setRoles(rs.map((r) => r.role)))
+      .catch(() => setRoles([]));
+  }, [locked]);
 
   const totalWeight = rows.reduce((s, r) => s + (r.weight > 0 ? r.weight : 0), 0) || 1;
 
@@ -51,10 +62,9 @@ export function JobForm({ initial, jobId }: { initial?: Job; jobId?: string }) {
   }
 
   async function onSave() {
-    const criteria = rows
-      .map((r) => ({ ...r, name: r.name.trim() }))
-      .filter((r) => r.name);
+    const criteria = rows.map((r) => ({ ...r, name: r.name.trim() })).filter((r) => r.name);
     if (!title.trim()) return setError("Give the role a title.");
+    if (!roleKey.trim()) return setError("Pick the application-form role this job serves.");
     if (criteria.length === 0) return setError("Add at least one criterion to score against.");
     if (criteria.some((r) => !(r.weight > 0))) return setError("Every criterion needs a weight above zero.");
 
@@ -63,33 +73,16 @@ export function JobForm({ initial, jobId }: { initial?: Job; jobId?: string }) {
     const payload = {
       title: title.trim(),
       job_description: jd,
+      role_key: roleKey.trim(),
       rubric: { job_title: title.trim(), criteria, requires_visual_review: vision },
-      google_sheet_id: sheetId.trim() || null,
     };
     try {
       const job = isEdit ? await updateJob(jobId!, payload) : await createJob(payload);
-      router.push(`/jobs/${job.id}`);
+      // Prompt to pull applicants so any held rows for this role flow in.
+      router.push(`/jobs/${job.id}?created=1`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save the job. Try again.");
       setSaving(false);
-    }
-  }
-
-  async function onTest() {
-    if (!isEdit) return;
-    setTesting(true);
-    setProbe(null);
-    try {
-      setProbe(await testIntake(jobId!, sheetId));
-    } catch (e) {
-      setProbe({
-        connected: false,
-        row_count: 0,
-        detected_columns: {},
-        error: e instanceof Error ? e.message : "Test failed.",
-      });
-    } finally {
-      setTesting(false);
     }
   }
 
@@ -105,16 +98,59 @@ export function JobForm({ initial, jobId }: { initial?: Job; jobId?: string }) {
     }
   }
 
+  // Options = detected roles + the current value (so editing shows it selected).
+  const roleOptions = Array.from(new Set([roleKey, ...roles].filter(Boolean)));
+
   return (
     <div className="space-y-5">
       {error && (
-        <div
-          className="rounded-lg px-3 py-2 text-sm"
-          style={{ color: "var(--tier-reject)", background: "var(--tier-reject-tint)" }}
-        >
+        <div className="rounded-lg px-3 py-2 text-sm" style={{ color: "var(--tier-reject)", background: "var(--tier-reject-tint)" }}>
           {error}
         </div>
       )}
+
+      {/* Which application-form role this job serves */}
+      <Card className="p-5">
+        <h2 className="font-display text-sm font-medium">Application-form role</h2>
+        <p className="mt-0.5 text-xs text-muted">
+          The exact option applicants choose on the form. Applicants who picked this role route to this
+          job automatically — no manual mapping.
+        </p>
+        <div className="mt-3">
+          {locked ? (
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium"
+                style={{ borderColor: "var(--accent)", background: "var(--accent-tint)", color: "var(--accent-ink)" }}
+              >
+                {roleKey}
+              </span>
+              <span className="text-xs text-faint">locked — from the form dropdown</span>
+            </div>
+          ) : roleOptions.length > 0 ? (
+            <Field label="Role" hint="Chosen from the roles detected on the application form.">
+              <select
+                value={roleKey}
+                onChange={(e) => setRoleKey(e.target.value)}
+                className="w-full rounded-lg border border-line-2 bg-surface px-3 py-2 text-sm text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-[var(--accent-tint)]"
+              >
+                <option value="" disabled>
+                  Select a role…
+                </option>
+                {roleOptions.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : (
+            <Field label="Role key" hint="No roles detected from the form yet — enter the exact dropdown value this job serves.">
+              <TextInput value={roleKey} onChange={(e) => setRoleKey(e.target.value)} placeholder="e.g. Graphic Design Intern" />
+            </Field>
+          )}
+        </div>
+      </Card>
 
       <Card className="space-y-4 p-5">
         <Field label="Role title">
@@ -130,9 +166,7 @@ export function JobForm({ initial, jobId }: { initial?: Job; jobId?: string }) {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-display text-sm font-medium">What you're looking for</h2>
-            <p className="mt-0.5 text-xs text-muted">
-              Each criterion is scored 0–100; weights set how much it counts.
-            </p>
+            <p className="mt-0.5 text-xs text-muted">Each criterion is scored 0–100; weights set how much it counts.</p>
           </div>
         </div>
         <div className="mt-4 space-y-2.5">
@@ -184,12 +218,7 @@ export function JobForm({ initial, jobId }: { initial?: Job; jobId?: string }) {
       {/* Vision toggle */}
       <Card className="p-5">
         <label className="flex cursor-pointer items-start gap-3">
-          <input
-            type="checkbox"
-            checked={vision}
-            onChange={(e) => setVision(e.target.checked)}
-            className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
-          />
+          <input type="checkbox" checked={vision} onChange={(e) => setVision(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--accent)]" />
           <span>
             <span className="text-sm font-medium">Also score the CV's visual design</span>
             <span className="mt-0.5 block text-xs text-muted">
@@ -197,44 +226,6 @@ export function JobForm({ initial, jobId }: { initial?: Job; jobId?: string }) {
             </span>
           </span>
         </label>
-      </Card>
-
-      {/* Google Form connection */}
-      <Card className="p-5">
-        <h2 className="font-display text-sm font-medium">Where applications come from</h2>
-        <p className="mt-0.5 text-xs text-muted">
-          Connect this role to its Google Form by pasting the responses Sheet ID. Leave it blank to use the local sample applicants.
-        </p>
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
-          <div className="flex-1">
-            <Field
-              label="Responses Sheet ID"
-              hint={
-                <>
-                  From the Sheet URL:{" "}
-                  <code className="font-mono">docs.google.com/spreadsheets/d/</code>
-                  <strong>&lt;this&gt;</strong>
-                  <code className="font-mono">/edit</code>
-                </>
-              }
-            >
-              <TextInput value={sheetId} onChange={(e) => setSheetId(e.target.value)} placeholder="1Abc…xyz" />
-            </Field>
-          </div>
-          <Button
-            variant="secondary"
-            onClick={onTest}
-            loading={testing}
-            disabled={!isEdit}
-            className="shrink-0"
-          >
-            Test connection
-          </Button>
-        </div>
-        {!isEdit && (
-          <p className="mt-2 text-xs text-faint">Save the role first, then test the connection from its settings.</p>
-        )}
-        {probe && <ProbeResult probe={probe} />}
       </Card>
 
       {/* Actions */}
@@ -251,37 +242,6 @@ export function JobForm({ initial, jobId }: { initial?: Job; jobId?: string }) {
           </Button>
         )}
       </div>
-    </div>
-  );
-}
-
-function ProbeResult({ probe }: { probe: IntakeProbeResult }) {
-  const ok = probe.connected;
-  const color = ok ? "var(--tier-shortlist)" : "var(--tier-reject)";
-  const tint = ok ? "var(--tier-shortlist-tint)" : "var(--tier-reject-tint)";
-  return (
-    <div className="mt-3 rounded-lg px-3 py-2 text-sm" style={{ background: tint, color }}>
-      {ok ? (
-        <>
-          <span className="font-medium">Connected.</span>{" "}
-          <span className="font-mono">{probe.row_count}</span> response
-          {probe.row_count === 1 ? "" : "s"} found
-          {Object.values(probe.detected_columns).some(Boolean) && (
-            <span className="text-muted">
-              {" "}
-              · columns:{" "}
-              {Object.entries(probe.detected_columns)
-                .filter(([, v]) => v)
-                .map(([k]) => k)
-                .join(", ")}
-            </span>
-          )}
-        </>
-      ) : (
-        <>
-          <span className="font-medium">Not connected.</span> {probe.error}
-        </>
-      )}
     </div>
   );
 }

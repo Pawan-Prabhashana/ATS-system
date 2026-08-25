@@ -156,7 +156,9 @@ export interface Job {
   job_description: string;
   rubric: Rubric;
   status: JobStatus;
-  google_sheet_id: string | null;
+  /** The exact form-dropdown value this job serves (Phase 15). */
+  role_key: string;
+  google_sheet_id: string | null; // deprecated; kept for back-compat, not shown in UI
   assignment_brief_filename: string | null;
   assignment_deadline_days: number | null;
   assignment_message: string | null;
@@ -167,7 +169,7 @@ export interface JobCreatePayload {
   title: string;
   job_description: string;
   rubric: Rubric;
-  google_sheet_id?: string | null;
+  role_key: string;
   status?: JobStatus;
 }
 
@@ -176,10 +178,22 @@ export type JobUpdatePayload = Partial<JobCreatePayload> & {
   assignment_message?: string | null;
 };
 
-export interface IntakeProbeResult {
+/** A role seen on the single application form (+ whether a job serves it). */
+export interface RoleInfo {
+  role: string;
+  applicant_count: number;
+  has_job: boolean;
+  job_id: string | null;
+  job_title: string | null;
+}
+
+/** Site-form connection status (one form for all roles). */
+export interface IntakeStatus {
   connected: boolean;
   row_count: number;
+  role_column_detected: boolean;
   detected_columns: Record<string, string | null>;
+  distinct_roles: string[];
   error: string | null;
 }
 
@@ -243,13 +257,23 @@ export interface CandidateDetail {
   job_title: string | null;
 }
 
-export interface IngestionSummary {
+export interface IngestionFailure {
+  submission_ref: string;
+  name: string | null;
+  reason: string;
+}
+
+/** Result of a single site-level pull, routed to jobs by role_key. */
+export interface SiteIngestionSummary {
   processed: number;
-  skipped: number;
+  processed_by_job: Record<string, number>;
+  skipped_duplicate: number;
+  held_total: number;
+  /** role string -> count of applicants for a role with no configured job yet. */
+  held_by_role: Record<string, number>;
   failed: number;
+  failures: IngestionFailure[];
   processed_candidate_ids: string[];
-  skipped_candidate_ids: string[];
-  failures: { submission_ref: string; name: string | null; reason: string }[];
 }
 
 export type SendOutcomeStatus =
@@ -393,27 +417,28 @@ export function deleteBrief(id: string): Promise<Job> {
   });
 }
 
-export function testIntake(
-  id: string,
-  googleSheetId?: string | null,
-): Promise<IntakeProbeResult> {
-  if (DEMO_MODE) return demoCall(() => demo.demoTestIntake());
-  return request<IntakeProbeResult>(`/jobs/${encodeURIComponent(id)}/test-intake`, {
-    method: "POST",
-    body: JSON.stringify({ google_sheet_id: googleSheetId?.trim() || null }),
-  });
-}
-
 export function getJobSummary(id: string): Promise<JobSummary> {
   if (DEMO_MODE) return demoCall(() => demo.demoGetJobSummary(id));
   return request<JobSummary>(`/jobs/${encodeURIComponent(id)}/summary`);
 }
 
-export function ingestJob(id: string): Promise<IngestionSummary> {
-  if (DEMO_MODE) return demoCall(() => demo.demoIngestJob(id));
-  return request<IngestionSummary>(`/jobs/${encodeURIComponent(id)}/ingest`, {
-    method: "POST",
-  });
+// -- Site-level intake (Phase 15): one form, routed by role_key -------------
+/** Pull ALL new applicants from the single form; routes each to a job by role. */
+export function siteIngest(): Promise<SiteIngestionSummary> {
+  if (DEMO_MODE) return demoCall(() => demo.demoSiteIngest());
+  return request<SiteIngestionSummary>("/ingest", { method: "POST" });
+}
+
+/** Every role on the form + whether a job serves it (powers "needs setup"). */
+export function listRoles(): Promise<RoleInfo[]> {
+  if (DEMO_MODE) return demoCall(() => demo.demoListRoles());
+  return request<RoleInfo[]>("/roles");
+}
+
+/** Is the single form readable and its role column detected? */
+export function getIntakeStatus(): Promise<IntakeStatus> {
+  if (DEMO_MODE) return demoCall(() => demo.demoIntakeStatus());
+  return request<IntakeStatus>("/intake/status");
 }
 
 export function listJobCandidates(
