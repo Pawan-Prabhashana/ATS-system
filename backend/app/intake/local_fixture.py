@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.config import settings
-from app.intake.base import RawSubmission
+from app.intake.base import RawSubmission, detect_role_column
 from app.intake.errors import IntakeError
 
 DEFAULT_CSV = settings.sample_data_dir / "mock_form_responses.csv"
@@ -41,21 +41,67 @@ class LocalFixtureIntakeSource:
         submissions: list[RawSubmission] = []
         with self.csv_path.open(newline="", encoding="utf-8") as fh:
             reader = csv.DictReader(fh)
+            role_col = detect_role_column(list(reader.fieldnames or []))
             for row in reader:
-                row_job_id = (row.get("job_id") or "").strip() or None
+                role = (row.get(role_col) or "").strip() if role_col else None
                 submissions.append(
                     RawSubmission(
                         name=(row.get("name") or "").strip() or None,
                         email=(row.get("email") or "").strip() or None,
                         submitted_at=_parse_timestamp(row.get("timestamp")),
                         cv_file_ref=(row.get("cv_filename") or "").strip(),
-                        job_id=row_job_id,
+                        role=role or None,
                         raw_row_data=dict(row),
                     )
                 )
-        if job_id is not None:
-            submissions = [s for s in submissions if s.job_id == job_id]
+        # job_id filtering is a no-op now (routing is by role at the site level);
+        # the param is kept only for protocol compatibility.
         return submissions
+
+    def probe(self) -> dict:
+        """Site-sheet connection check (mirrors GoogleFormsIntakeSource.probe):
+        ``{connected, row_count, role_column_detected, detected_columns,
+        distinct_roles, error}``. Never raises."""
+        empty = {"name": None, "email": None, "cv": None, "role": None, "timestamp": None}
+        if not self.csv_path.exists():
+            return {
+                "connected": False,
+                "row_count": 0,
+                "role_column_detected": False,
+                "detected_columns": empty,
+                "distinct_roles": [],
+                "error": f"Fixture CSV not found: {self.csv_path}",
+            }
+        with self.csv_path.open(newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            headers = list(reader.fieldnames or [])
+            rows = list(reader)
+        role_col = detect_role_column(headers)
+
+        def find(keys: tuple[str, ...]) -> str | None:
+            for h in headers:
+                if any(k in h.strip().lower() for k in keys):
+                    return h
+            return None
+
+        cols = {
+            "name": find(("name",)),
+            "email": find(("email", "e-mail")),
+            "cv": find(("cv", "resume", "upload", "file")),
+            "role": role_col,
+            "timestamp": find(("timestamp", "time", "date")),
+        }
+        distinct = sorted(
+            {(r.get(role_col) or "").strip() for r in rows if role_col and (r.get(role_col) or "").strip()}
+        )
+        return {
+            "connected": True,
+            "row_count": len(rows),
+            "role_column_detected": bool(role_col),
+            "detected_columns": cols,
+            "distinct_roles": distinct,
+            "error": None,
+        }
 
     def download_cv(self, submission: RawSubmission, dest_dir: Path) -> Path:
         dest_dir = Path(dest_dir)

@@ -27,6 +27,7 @@ def _make_job(**extra) -> str:
     body = {
         "title": "Backend Engineer",
         "job_description": "jd",
+        "role_key": "Backend Engineer",
         "rubric": {"job_title": "B", "criteria": [{"name": "c", "weight": 1.0}]},
         **extra,
     }

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.email.factory import get_email_sender
 from app.intake.errors import IntakeError
+from app.intake.factory import get_intake_source
 from app.models import (
     Candidate,
     CandidateStatus,
@@ -22,9 +23,8 @@ from app.models import (
 )
 from app.parsing import parse_cv_bytes
 from app.pipeline import (
-    IngestionSummary,
-    build_intake_source_for_job,
-    run_ingestion,
+    SiteIngestionSummary,
+    run_site_ingestion,
 )
 from app.pipeline.assignment import (
     BRIEF_FILENAME,
@@ -62,12 +62,17 @@ async def parse(file: UploadFile = File(...)) -> ParsedCV:
 # Jobs (Phase 5 multi-job; Phase 7 config-as-data)
 # --------------------------------------------------------------------------- #
 class JobCreateRequest(BaseModel):
-    """Create a job. ``id`` is auto-generated as a slug from ``title``."""
+    """Create a job. ``id`` is auto-generated as a slug from ``title``.
+
+    ``role_key`` is the EXACT form dropdown value this job serves (Phase 15);
+    unique across jobs. There is no per-job Sheet ID any more — the form is
+    site-level and rows route by role.
+    """
 
     title: str
     job_description: str
     rubric: dict  # validated -> clean 400 (see _validated_rubric)
-    google_sheet_id: Optional[str] = None
+    role_key: str
     status: Optional[JobStatus] = None
 
 
@@ -77,7 +82,7 @@ class JobUpdateRequest(BaseModel):
     title: Optional[str] = None
     job_description: Optional[str] = None
     rubric: Optional[dict] = None
-    google_sheet_id: Optional[str] = None
+    role_key: Optional[str] = None
     status: Optional[JobStatus] = None
     assignment_deadline_days: Optional[int] = None
     assignment_message: Optional[str] = None
@@ -95,6 +100,19 @@ def _unique_job_id(repo, base: str) -> str:
     while repo.get(f"{base}-{n}") is not None:
         n += 1
     return f"{base}-{n}"
+
+
+def _check_role_key_unique(repo, role_key: str, *, exclude_id: str | None = None) -> None:
+    """Reject a role_key already used by another job (exact match) — a 400."""
+    key = (role_key or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="role_key is required and cannot be empty.")
+    for j in repo.list_all():
+        if j.id != exclude_id and (j.role_key or "").strip() == key:
+            raise HTTPException(
+                status_code=400,
+                detail=f"role_key {key!r} is already used by job {j.id!r}. Each job serves a distinct role.",
+            )
 
 
 def _validated_rubric(raw: dict) -> Rubric:
@@ -117,12 +135,13 @@ def list_jobs() -> list[Job]:
 def create_job(body: JobCreateRequest) -> Job:
     repo = get_job_repository()
     rubric = _validated_rubric(body.rubric)
+    _check_role_key_unique(repo, body.role_key)
     job = Job(
         id=_unique_job_id(repo, _slugify(body.title)),
         title=body.title,
+        role_key=body.role_key.strip(),
         job_description=body.job_description,
         rubric=rubric,
-        google_sheet_id=body.google_sheet_id,
         status=body.status or JobStatus.open,
     )
     return repo.add(job)
@@ -150,8 +169,9 @@ def update_job(job_id: str, body: JobUpdateRequest) -> Job:
         updates["job_description"] = body.job_description
     if body.rubric is not None:
         updates["rubric"] = _validated_rubric(body.rubric)
-    if body.google_sheet_id is not None:
-        updates["google_sheet_id"] = body.google_sheet_id
+    if body.role_key is not None:
+        _check_role_key_unique(repo, body.role_key, exclude_id=job_id)
+        updates["role_key"] = body.role_key.strip()
     if body.status is not None:
         updates["status"] = body.status
     if body.assignment_deadline_days is not None:
@@ -171,65 +191,100 @@ def close_job(job_id: str) -> Job:
     return repo.update(job.model_copy(update={"status": JobStatus.closed}))
 
 
-@router.post("/jobs/{job_id}/ingest", response_model=IngestionSummary)
-def ingest_job(job_id: str) -> IngestionSummary:
-    """Run ingestion scoped to a single job, selecting the intake source FROM
-    THE JOB (its Google Sheet if connected, else local fixtures)."""
-    job = get_job_repository().get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
-    source = build_intake_source_for_job(job)
+# --------------------------------------------------------------------------- #
+# Site-level intake (Phase 15): ONE form, routed to jobs by role_key
+# --------------------------------------------------------------------------- #
+@router.post("/ingest", response_model=SiteIngestionSummary)
+def site_ingest() -> SiteIngestionSummary:
+    """Pull ALL new applicants from the single site form and route each row to
+    the job whose ``role_key`` matches the row's role EXACTLY. Rows for a role
+    with no configured job are HELD (reported per role), not stored."""
+    jobs = get_job_repository().list_all()
     try:
-        return run_ingestion(
-            job.job_description, job.rubric, job_id=job_id, intake_source=source
-        )
+        return run_site_ingestion(jobs)
     except IntakeError as exc:
-        # Reading the intake source failed (e.g. the Google Sheet/Drive API is
-        # disabled or not shared). Surface the reason instead of a raw 500 so the
-        # reviewer sees something actionable.
+        # Reading the site sheet failed (API disabled / not shared / no sheet).
         raise HTTPException(
-            status_code=502, detail=f"Couldn't read this job's applications: {exc}"
+            status_code=502, detail=f"Couldn't read the application form: {exc}"
         ) from exc
 
 
-class IntakeProbeResult(BaseModel):
+class RoleInfo(BaseModel):
+    role: str
+    applicant_count: int = 0
+    has_job: bool = False
+    job_id: Optional[str] = None
+    job_title: Optional[str] = None
+
+
+@router.get("/roles", response_model=list[RoleInfo])
+def list_roles() -> list[RoleInfo]:
+    """Every role seen on the form + every configured job, merged.
+
+    For each distinct role value: its applicant count and whether a job exists
+    (``has_job`` + ``job_id``). Configured jobs with zero applicants are included
+    too, so the admin sees the full picture — this powers "roles needing setup".
+    """
+    jobs = get_job_repository().list_all()
+    by_role_key: dict[str, object] = {(j.role_key or "").strip(): j for j in jobs if (j.role_key or "").strip()}
+
+    # Count applicants per role from the site form (resilient — an unreadable
+    # sheet just means zero counts; /intake/status reports the read problem).
+    counts: dict[str, int] = {}
+    try:
+        for sub in get_intake_source().fetch_new_submissions():
+            role = (sub.role or "").strip()
+            if role:
+                counts[role] = counts.get(role, 0) + 1
+    except IntakeError:
+        counts = {}
+
+    roles = set(counts) | set(by_role_key)
+    out: list[RoleInfo] = []
+    for role in sorted(roles):
+        job = by_role_key.get(role)
+        out.append(
+            RoleInfo(
+                role=role,
+                applicant_count=counts.get(role, 0),
+                has_job=job is not None,
+                job_id=getattr(job, "id", None),
+                job_title=getattr(job, "title", None),
+            )
+        )
+    return out
+
+
+class IntakeStatus(BaseModel):
     connected: bool
     row_count: int = 0
+    role_column_detected: bool = False
     detected_columns: dict[str, Optional[str]] = {}
+    distinct_roles: list[str] = []
     error: Optional[str] = None
 
 
-class TestIntakeRequest(BaseModel):
-    """Optional override so the settings form can test a Sheet ID before save."""
+def _intake_status() -> IntakeStatus:
+    """Can we read the single site form, and is the role column detected? Never
+    raises to a 500."""
+    source = get_intake_source()
+    probe = getattr(source, "probe", None)
+    if probe is None:  # pragma: no cover - all current sources implement probe
+        return IntakeStatus(connected=False, error="Intake source has no status probe.")
+    try:
+        return IntakeStatus(**probe())
+    except Exception as exc:  # noqa: BLE001 - report, never 500
+        return IntakeStatus(connected=False, error=str(exc))
 
-    google_sheet_id: Optional[str] = None
+
+@router.post("/intake/status", response_model=IntakeStatus)
+def intake_status_post() -> IntakeStatus:
+    return _intake_status()
 
 
-@router.post("/jobs/{job_id}/test-intake", response_model=IntakeProbeResult)
-def test_intake(
-    job_id: str, body: TestIntakeRequest | None = None
-) -> IntakeProbeResult:
-    """Operability check: try to read the job's Google Sheet header + row count.
-
-    Never raises to a 500 — any Google/credentials error is reported as
-    ``connected: false`` with a human-readable ``error``.
-    """
-    job = get_job_repository().get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
-
-    typed = (body.google_sheet_id or "").strip() if body else ""
-    sheet_id = typed or job.google_sheet_id
-    if not sheet_id:
-        return IntakeProbeResult(
-            connected=False,
-            error="No Google Sheet connected for this job.",
-        )
-
-    from app.intake.google_forms import GoogleFormsIntakeSource
-
-    source = GoogleFormsIntakeSource(sheet_id=sheet_id)
-    return IntakeProbeResult(**source.probe())
+@router.get("/intake/status", response_model=IntakeStatus)
+def intake_status_get() -> IntakeStatus:
+    return _intake_status()
 
 
 # --------------------------------------------------------------------------- #

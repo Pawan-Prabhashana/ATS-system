@@ -20,7 +20,7 @@ from app.config import (
     get_google_service_account_file,
     get_google_sheet_id,
 )
-from app.intake.base import RawSubmission
+from app.intake.base import RawSubmission, detect_role_column
 from app.intake.errors import IntakeConfigError
 
 # Read-only scopes: form responses live in a Sheet; uploads live in Drive.
@@ -102,7 +102,7 @@ class GoogleFormsIntakeSource:
                     email=_get(row, col["email"]) or None,
                     submitted_at=None,  # left to later phases if needed
                     cv_file_ref=file_id,
-                    job_id=job_id,
+                    role=_get(row, col.get("role")) or None,
                     raw_row_data=row,
                 )
             )
@@ -115,14 +115,16 @@ class GoogleFormsIntakeSource:
         raises — any Google/credentials/library problem comes back as
         ``connected: False`` with a human-readable ``error``.
         """
-        empty_cols = {"name": None, "email": None, "cv": None, "timestamp": None}
+        empty_cols = {"name": None, "email": None, "cv": None, "role": None, "timestamp": None}
         sheet_id = self.sheet_id or get_google_sheet_id()
         if not sheet_id:
             return {
                 "connected": False,
                 "row_count": 0,
+                "role_column_detected": False,
                 "detected_columns": empty_cols,
-                "error": "No Google Sheet configured for this job.",
+                "distinct_roles": [],
+                "error": "No Google Sheet configured (set GOOGLE_SHEET_ID to the form-responses sheet).",
             }
         try:
             sheets, _drive = self._build_clients()
@@ -136,7 +138,9 @@ class GoogleFormsIntakeSource:
             return {
                 "connected": False,
                 "row_count": 0,
+                "role_column_detected": False,
                 "detected_columns": empty_cols,
+                "distinct_roles": [],
                 "error": str(exc),
             }
 
@@ -145,15 +149,26 @@ class GoogleFormsIntakeSource:
             return {
                 "connected": True,
                 "row_count": 0,
+                "role_column_detected": False,
                 "detected_columns": empty_cols,
+                "distinct_roles": [],
                 "error": None,
             }
         header = rows[0]
         cols = _resolve_columns(header)
+        role_col = cols.get("role")
+        distinct: set[str] = set()
+        if role_col:
+            for raw in rows[1:]:
+                val = _get(_row_to_dict(header, raw), role_col)
+                if val:
+                    distinct.add(val)
         return {
             "connected": True,
             "row_count": len(rows) - 1,
+            "role_column_detected": bool(role_col),
             "detected_columns": {k: cols.get(k) for k in empty_cols},
+            "distinct_roles": sorted(distinct),
             "error": None,
         }
 
@@ -258,6 +273,7 @@ def _resolve_columns(header: list[str]) -> dict[str, str | None]:
         "name": find(_NAME_KEYS),
         "email": find(_EMAIL_KEYS),
         "cv": find(_CV_KEYS),
+        "role": detect_role_column(header),
         "timestamp": find(_TIME_KEYS),
     }
 

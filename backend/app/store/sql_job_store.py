@@ -38,6 +38,7 @@ def _to_job(row: JobRow) -> Job:
         job_description=row.job_description,
         rubric=Rubric.model_validate(row.rubric),
         status=row.status,
+        role_key=row.role_key or "",
         google_sheet_id=row.google_sheet_id,
         assignment_brief_filename=row.assignment_brief_filename,
         assignment_deadline_days=row.assignment_deadline_days,
@@ -52,6 +53,7 @@ def _apply(row: JobRow, job: Job) -> None:
     row.job_description = job.job_description
     row.rubric = job.rubric.model_dump(mode="json")
     row.status = _enum_value(job.status)
+    row.role_key = job.role_key or ""
     row.google_sheet_id = job.google_sheet_id
     row.assignment_brief_filename = job.assignment_brief_filename
     row.assignment_deadline_days = job.assignment_deadline_days

@@ -9,8 +9,8 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.intake.local_fixture import LocalFixtureIntakeSource
 from app.main import app
-from app.models import Candidate, CandidateStatus, Evaluation, Recommendation
-from app.pipeline import load_default_job_description, load_default_rubric, run_ingestion
+from app.models import Candidate, CandidateStatus, Evaluation, Job, Recommendation
+from app.pipeline import load_default_job_description, load_default_rubric, run_site_ingestion
 from app.store import JSONCandidateStore
 
 client = TestClient(app)
@@ -31,13 +31,14 @@ def jd_and_rubric():
 # --------------------------------------------------------------------------- #
 def test_ingestion_persists_cv_and_page_images(store, jd_and_rubric):
     jd, rubric = jd_and_rubric
-    run_ingestion(
-        jd, rubric, job_id="backend-engineer",
-        intake_source=LocalFixtureIntakeSource(), store=store,
-    )
+    jobs = [
+        Job(id="backend-engineer", title="Backend Engineer", role_key="Backend Engineer", job_description=jd, rubric=rubric),
+        Job(id="graphic-designer", title="Graphic Designer", role_key="Graphic Design Intern", job_description=jd, rubric=rubric),
+    ]
+    run_site_ingestion(jobs, intake_source=LocalFixtureIntakeSource(), store=store)
 
     records = store.list_all()
-    assert len(records) == 3
+    assert len(records) == 4  # Backend x3 + Graphic x1 (Motion Designer held)
     for record in records:
         # New stable-artifact fields are populated.
         assert record.artifact_dir == f"candidates/{record.candidate.id}"
@@ -124,8 +125,8 @@ def api_store(tmp_path, monkeypatch):
     seed_jobs(JSONJobRepository(path=tmp_path / "jobs.json"))
 
 
-def _ingest_via_api(job_id: str = "backend-engineer") -> list[dict]:
-    assert client.post(f"/jobs/{job_id}/ingest").status_code == 200
+def _ingest_via_api() -> list[dict]:
+    assert client.post("/ingest").status_code == 200
     resp = client.get("/candidates")
     assert resp.status_code == 200
     return resp.json()

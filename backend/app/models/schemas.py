@@ -128,11 +128,17 @@ class Job(BaseModel):
     job_description: str
     rubric: Rubric
     status: JobStatus = JobStatus.open
+    # The exact dropdown value on the single application form that this job
+    # serves (e.g. "Graphic Design Intern"). Ingestion routes each form row to a
+    # job by an EXACT match on this — never a fuzzy/AI guess. Unique across jobs.
+    # Defaults to "" only so legacy rows load; the create API requires a value.
+    role_key: str = Field("", description="Exact form dropdown value this job serves.")
     google_sheet_id: Optional[str] = Field(
         None,
         description=(
-            "Responses Sheet ID for this job's Google Form. None = not connected "
-            "to a live form yet (ingestion falls back to local fixtures)."
+            "DEPRECATED (Phase 15): per-job sheet routing is gone — the form is "
+            "embedded once at site level (GOOGLE_SHEET_ID) and rows route by "
+            "role_key. Column kept for back-compat; no longer read for ingestion."
         ),
     )
     # Assignment dispatch config (Phase 9). The brief file itself lives on disk

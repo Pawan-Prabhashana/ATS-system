@@ -2,6 +2,7 @@
   {
     "id": "backend-engineer",
     "title": "Backend Engineer",
+    "role_key": "Backend Engineer",
     "job_description": "We are hiring a Backend Engineer (Python) to build and operate the services behind our recruitment-automation platform: FastAPI services, data-processing pipelines, document parsing, and LLM-based evaluation. Strong Python, REST/API design, testing (pytest) and CI experience expected; PDF/document processing and LLM integration are a plus.",
     "rubric_file": "rubric.json",
     "status": "open"
@@ -9,6 +10,7 @@
   {
     "id": "graphic-designer",
     "title": "Graphic Designer",
+    "role_key": "Graphic Design Intern",
     "job_description": "We are hiring a Graphic/Product Designer to own visual and brand design across our product and marketing surfaces. We care about visual hierarchy, layout, and craft; fluency with Figma/Adobe tooling; a strong portfolio; and close collaboration with product and engineering. The CV itself is treated as a design artifact.",
     "rubric_file": "rubric_design.json",
     "status": "open"

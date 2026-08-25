@@ -175,7 +175,17 @@ def get_auth_token_ttl_hours() -> int:
 
 
 def get_google_sheet_id() -> str | None:
+    """THE single application-form responses sheet (site-level, Phase 15).
+    One Google Form feeds every role; rows are routed to jobs by role, not by a
+    per-job sheet."""
     return os.getenv("GOOGLE_SHEET_ID")
+
+
+def get_form_role_column() -> str | None:
+    """Exact header of the role question on the single form (optional). When
+    unset, the role column is auto-detected by a header containing 'role'."""
+    raw = (os.getenv("FORM_ROLE_COLUMN") or "").strip()
+    return raw or None
 
 
 _MATERIALIZED_SA_JSON: str | None = None  # cache: temp path we wrote the JSON to

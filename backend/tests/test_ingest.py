@@ -9,8 +9,13 @@ import pytest
 
 from app.config import settings
 from app.intake.local_fixture import LocalFixtureIntakeSource
-from app.models import CandidateStatus
-from app.pipeline import load_default_job_description, load_default_rubric, run_ingestion
+from app.models import CandidateStatus, Job, Rubric
+from app.pipeline import (
+    load_default_job_description,
+    load_default_rubric,
+    run_ingestion,
+    run_site_ingestion,
+)
 from app.store import JSONCandidateStore
 
 SAMPLE_DIR = settings.sample_data_dir
@@ -26,52 +31,43 @@ def store(tmp_path):
     return JSONCandidateStore(path=tmp_path / "candidates.json")
 
 
-def test_ingestion_processes_three_candidates(store, jd_and_rubric):
-    jd, rubric = jd_and_rubric
-    # The default fixture has 3 backend-engineer + 2 graphic-designer rows;
-    # scope to the backend job to get exactly the 3 originals.
-    summary = run_ingestion(
-        jd, rubric, job_id="backend-engineer",
-        intake_source=LocalFixtureIntakeSource(), store=store,
-    )
+def _jobs(jd, rubric):
+    return [
+        Job(id="backend-engineer", title="Backend Engineer", role_key="Backend Engineer", job_description=jd, rubric=rubric),
+        Job(id="graphic-designer", title="Graphic Designer", role_key="Graphic Design Intern", job_description=jd, rubric=rubric),
+    ]
 
-    assert summary.processed == 3
-    assert summary.skipped == 0
+
+def test_site_ingestion_routes_by_role(store, jd_and_rubric):
+    jd, rubric = jd_and_rubric
+    summary = run_site_ingestion(_jobs(jd, rubric), intake_source=LocalFixtureIntakeSource(), store=store)
+
+    # Backend Engineer x3 + Graphic Design Intern x1 routed; Motion Designer held.
+    assert summary.processed_by_job == {"backend-engineer": 3, "graphic-designer": 1}
+    assert summary.held_by_role == {"Motion Designer": 1}
     assert summary.failed == 0
 
     records = store.list_all()
-    assert len(records) == 3
-    # All scored, tagged with the job, evaluation in range.
+    assert len(records) == 4  # held Motion Designer NOT stored
     for r in records:
         assert r.candidate.status is CandidateStatus.scored
-        assert r.candidate.job_id == "backend-engineer"
         assert r.evaluation is not None
         assert 0 <= r.evaluation.overall_score <= 100
         assert r.evaluation.evaluated_by == "mock"
-    assert {r.candidate.email for r in records} == {
-        "jane.doe@example.com",
-        "john.smith@example.com",
-        "sam.rivera@example.com",
-    }
+    backend = {r.candidate.email for r in records if r.candidate.job_id == "backend-engineer"}
+    assert backend == {"jane.doe@example.com", "john.smith@example.com", "sam.rivera@example.com"}
 
 
 def test_second_run_skips_all_via_dedup(store, jd_and_rubric):
     jd, rubric = jd_and_rubric
-    first = run_ingestion(
-        jd, rubric, job_id="backend-engineer",
-        intake_source=LocalFixtureIntakeSource(), store=store,
-    )
-    assert first.processed == 3
+    first = run_site_ingestion(_jobs(jd, rubric), intake_source=LocalFixtureIntakeSource(), store=store)
+    assert first.processed == 4
 
-    second = run_ingestion(
-        jd, rubric, job_id="backend-engineer",
-        intake_source=LocalFixtureIntakeSource(), store=store,
-    )
+    second = run_site_ingestion(_jobs(jd, rubric), intake_source=LocalFixtureIntakeSource(), store=store)
     assert second.processed == 0
-    assert second.skipped == 3
+    assert second.skipped_duplicate == 4
     assert second.failed == 0
-    # Store still holds exactly 3 (no duplicates).
-    assert len(store.list_all()) == 3
+    assert len(store.list_all()) == 4
 
 
 def test_one_corrupt_cv_does_not_abort_batch(tmp_path, store, jd_and_rubric):

@@ -437,7 +437,8 @@ Environment variables (see `app/config.py`):
 | `CATALIST_EVAL_TIMEOUT` | `60` | Per-request timeout (seconds) |
 | `CATALIST_EVAL_MAX_ATTEMPTS` | `2` | Network attempts on timeout / 5xx |
 | `INTAKE_MODE` | `local` | `local` (CSV fixtures) or `google` (Sheets + Drive) |
-| `GOOGLE_SHEET_ID` | _(unset)_ | Fallback responses-Sheet id (a job's `google_sheet_id` overrides it) |
+| `GOOGLE_SHEET_ID` | _(unset)_ | THE single application-form responses sheet (site-level, Phase 15) |
+| `FORM_ROLE_COLUMN` | _(unset)_ | Exact header of the role question; auto-detected (header containing "role") when unset |
 | `GOOGLE_SERVICE_ACCOUNT_FILE` | _(unset)_ | Path to service-account JSON key (Sheets/Drive access) |
 | `CATALIST_CANDIDATE_STORE_PATH` | `backend/data/candidates.json` | JSON candidate store location |
 | `CATALIST_JOB_STORE_PATH` | `backend/data/jobs.json` | JSON job store location |
@@ -771,6 +772,42 @@ email** (per the domain note above) or Resend will reject it.
 > and send nothing.
 
 ---
+
+## Single-form intake, routed by role (Phase 15)
+
+There is **one** Google Form for every role — ads funnel all applicants to it,
+and the candidate picks their role from a **fixed dropdown**. The system routes
+each response to the right job by an **exact string match** between the row's
+role and a job's `role_key` — never a fuzzy/AI guess (exact + predictable beats
+clever-but-occasionally-silently-wrong when a mismatch means a real applicant is
+never contacted).
+
+- **The form is site-level.** `GOOGLE_SHEET_ID` is THE single responses sheet;
+  there is no per-job Sheet ID any more. The role column is auto-detected (a
+  header containing "role") or pinned exactly with `FORM_ROLE_COLUMN`.
+- **`role_key` on each job** is the exact dropdown value it serves (e.g.
+  `"Graphic Design Intern"`), unique across jobs. Required on create.
+- **`POST /ingest`** pulls ALL new rows once and routes each to the job whose
+  `role_key` matches. A row whose role has **no configured job** is **HELD** —
+  not stored or parsed, just counted per role and left in the sheet — and
+  reported so the admin can set that role up. Once the job exists, a re-run
+  ingests the held rows.
+- **`GET /roles`** lists every role seen on the form (+ applicant count and
+  whether a job exists) merged with configured jobs — this surfaces "roles
+  needing setup". **`GET/POST /intake/status`** reports whether the one form is
+  readable and the role column detected.
+- Single-select assumed: one applicant → exactly one role. Multi-select (one
+  applicant → several roles) would need the role value split; that's out of
+  scope for now.
+
+> **Dev-data reset (pre-production).** Jobs now carry a `role_key`, and the SQL
+> `jobs` table gained a `role_key` column. Existing local `data/` JSON jobs and
+> any pre-Phase-15 Postgres `jobs` table must be **reset / re-seeded** so every
+> job has a `role_key`: delete `backend/data/jobs.json` (JSON) or drop+recreate
+> the `jobs` table (`python -m app.db.init` after dropping) and re-seed
+> (`python -m app.cli seed-jobs`). The bundled `mock_form_responses.csv` now has
+> a `role` column (Backend Engineer, Graphic Design Intern, and a **Motion
+> Designer** row with no job — to exercise the held-role path).
 
 ## Jobs & ingestion
 

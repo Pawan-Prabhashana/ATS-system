@@ -17,23 +17,29 @@ from app.intake.google_forms import GoogleFormsIntakeSource as GFS
 # --------------------------------------------------------------------------- #
 def test_local_fixture_reads_all_submissions():
     subs = LocalFixtureIntakeSource().fetch_new_submissions()
-    assert len(subs) == 5  # 3 backend-engineer + 2 graphic-designer
+    assert len(subs) == 5  # one site form; rows route by role, not by sheet
     emails = {s.email for s in subs}
     assert "jane.doe@example.com" in emails
     assert all(s.cv_file_ref.endswith(".pdf") for s in subs)
 
 
-def test_local_fixture_filters_by_job_id():
-    source = LocalFixtureIntakeSource()
-    backend = source.fetch_new_submissions("backend-engineer")
-    design = source.fetch_new_submissions("graphic-designer")
-    assert len(backend) == 3
-    assert len(design) == 2
-    assert all(s.job_id == "backend-engineer" for s in backend)
-    assert all(s.job_id == "graphic-designer" for s in design)
-    assert {s.email for s in design} == {
-        "dana.lee@example.com",
-        "miguel.torres@example.com",
+def test_local_fixture_tags_each_row_with_its_role():
+    subs = LocalFixtureIntakeSource().fetch_new_submissions()
+    by_email = {s.email: s.role for s in subs}
+    assert by_email["jane.doe@example.com"] == "Backend Engineer"
+    assert by_email["dana.lee@example.com"] == "Graphic Design Intern"
+    assert by_email["miguel.torres@example.com"] == "Motion Designer"  # role with no job
+
+
+def test_local_fixture_probe_detects_role_column():
+    probe = LocalFixtureIntakeSource().probe()
+    assert probe["connected"] is True
+    assert probe["role_column_detected"] is True
+    assert probe["detected_columns"]["role"] == "role"
+    assert set(probe["distinct_roles"]) == {
+        "Backend Engineer",
+        "Graphic Design Intern",
+        "Motion Designer",
     }
 
 

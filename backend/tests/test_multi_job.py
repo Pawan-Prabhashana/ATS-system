@@ -23,9 +23,13 @@ def _isolated(tmp_path, monkeypatch):
     seed_jobs(JSONJobRepository(path=tmp_path / "jobs.json"))
 
 
-def _ingest_both():
-    assert client.post(f"/jobs/{BACKEND}/ingest").json()["processed"] == 3
-    assert client.post(f"/jobs/{DESIGN}/ingest").json()["processed"] == 2
+def _ingest():
+    # ONE site-level pull; rows route by role_key. Backend Engineer x3, Graphic
+    # Design Intern x1; Motion Designer x1 is HELD (no job).
+    summary = client.post("/ingest").json()
+    assert summary["processed_by_job"] == {"backend-engineer": 3, "graphic-designer": 1}
+    assert summary["held_by_role"] == {"Motion Designer": 1}
+    return summary
 
 
 def _job_candidates(job_id, **params):
@@ -38,13 +42,13 @@ def _job_candidates(job_id, **params):
 # Isolation
 # --------------------------------------------------------------------------- #
 def test_ingest_is_job_isolated():
-    _ingest_both()
+    _ingest()
 
     backend = _job_candidates(BACKEND)
     design = _job_candidates(DESIGN)
 
     assert len(backend) == 3
-    assert len(design) == 2
+    assert len(design) == 1  # Dana; Miguel's "Motion Designer" role has no job (held)
 
     backend_ids = {r["candidate"]["id"] for r in backend}
     design_ids = {r["candidate"]["id"] for r in design}
@@ -52,12 +56,9 @@ def test_ingest_is_job_isolated():
 
     assert all(r["candidate"]["job_id"] == BACKEND for r in backend)
     assert all(r["candidate"]["job_id"] == DESIGN for r in design)
-    assert {r["candidate"]["email"] for r in design} == {
-        "dana.lee@example.com",
-        "miguel.torres@example.com",
-    }
-    # The global list has all 5.
-    assert len(client.get("/candidates").json()) == 5
+    assert {r["candidate"]["email"] for r in design} == {"dana.lee@example.com"}
+    # The global list has the 4 routed candidates (the held one is not stored).
+    assert len(client.get("/candidates").json()) == 4
 
 
 def test_listing_unknown_job_404():
@@ -66,7 +67,7 @@ def test_listing_unknown_job_404():
 
 
 def test_candidates_ranked_by_score_desc():
-    _ingest_both()
+    _ingest()
     scores = [r["evaluation"]["overall_score"] for r in _job_candidates(BACKEND)]
     assert scores == sorted(scores, reverse=True)
 
@@ -75,7 +76,7 @@ def test_candidates_ranked_by_score_desc():
 # Filters — every tier/status combination, checked against locally-derived truth
 # --------------------------------------------------------------------------- #
 def test_all_tier_and_status_filter_combinations():
-    _ingest_both()
+    _ingest()
     all_backend = _job_candidates(BACKEND)  # no filter -> everything
 
     def matches(rec, tier, status):
@@ -105,7 +106,7 @@ def test_all_tier_and_status_filter_combinations():
 
 
 def test_tier_filter_isolates_by_job():
-    _ingest_both()
+    _ingest()
     # A 'shortlist' filter on the design job never returns backend candidates.
     design_shortlist = _job_candidates(DESIGN, tier="shortlist")
     assert all(r["candidate"]["job_id"] == DESIGN for r in design_shortlist)
@@ -115,7 +116,7 @@ def test_tier_filter_isolates_by_job():
 # Summary
 # --------------------------------------------------------------------------- #
 def test_summary_counts_match_actual_data():
-    _ingest_both()
+    _ingest()
     records = _job_candidates(BACKEND)
 
     expected_tier = {t.value: 0 for t in Recommendation}
@@ -140,7 +141,7 @@ def test_summary_counts_match_actual_data():
 # Detail carries job context
 # --------------------------------------------------------------------------- #
 def test_candidate_detail_includes_job_context():
-    _ingest_both()
+    _ingest()
     cid = _job_candidates(DESIGN)[0]["candidate"]["id"]
     detail = client.get(f"/candidates/{cid}").json()
     assert detail["job_id"] == DESIGN

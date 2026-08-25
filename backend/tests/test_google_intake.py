@@ -1,4 +1,5 @@
-"""Phase 7B: per-job Google Forms binding + test-intake (offline, stubbed)."""
+"""Phase 15: single site Google Form — role-tagged rows, /intake/status, /ingest
+(offline, stubbed — no real Google)."""
 from __future__ import annotations
 
 import pytest
@@ -11,9 +12,6 @@ from app.main import app
 client = TestClient(app)
 
 
-# --------------------------------------------------------------------------- #
-# Fake Google Sheets client (records the spreadsheetId it was asked for)
-# --------------------------------------------------------------------------- #
 def _fake_sheets(values, captured):
     class _Exec:
         def __init__(self, sid):
@@ -38,114 +36,103 @@ def _fake_sheets(values, captured):
     return _Sheets()
 
 
+# One site form with a role question column ("Which role?" contains 'role').
 GOOD_ROWS = [
-    ["Timestamp", "Name", "Email", "CV Upload"],
-    ["2026-01-01", "Bob", "bob@x.com", "https://drive.google.com/open?id=ABC123def456"],
-    ["2026-01-02", "Cara", "cara@x.com", "https://drive.google.com/file/d/XYZ789ghijk/view"],
+    ["Timestamp", "Name", "Email", "Which role?", "CV Upload"],
+    ["2026-01-01", "Bob", "bob@x.com", "Backend Engineer", "https://drive.google.com/open?id=ABC123def456"],
+    ["2026-01-02", "Cara", "cara@x.com", "Graphic Design Intern", "https://drive.google.com/file/d/XYZ789ghijk/view"],
 ]
 
 
+@pytest.fixture(autouse=True)
+def _clean_env(monkeypatch):
+    monkeypatch.delenv("FORM_ROLE_COLUMN", raising=False)
+
+
 # --------------------------------------------------------------------------- #
-# Source binds to ITS OWN sheet, not the env
+# Source reads the site sheet and tags each row with its role
 # --------------------------------------------------------------------------- #
-def test_source_reads_its_own_sheet_not_env(monkeypatch):
-    monkeypatch.setenv("GOOGLE_SHEET_ID", "ENV-SHEET")  # must be ignored
+def test_source_reads_site_sheet_and_tags_role(monkeypatch):
     captured: dict = {}
     monkeypatch.setattr(
         GoogleFormsIntakeSource,
         "_build_clients",
         lambda self: (_fake_sheets(GOOD_ROWS, captured), object()),
     )
+    subs = GoogleFormsIntakeSource(sheet_id="SHEET-A").fetch_new_submissions()
 
-    src = GoogleFormsIntakeSource(sheet_id="SHEET-A")
-    subs = src.fetch_new_submissions("job-a")
-
-    assert captured["sheet_id"] == "SHEET-A"  # bound to the job's sheet, not env
+    assert captured["sheet_id"] == "SHEET-A"
     assert len(subs) == 2
-    assert all(s.job_id == "job-a" for s in subs)  # rows tagged with the job
+    assert subs[0].role == "Backend Engineer"
+    assert subs[1].role == "Graphic Design Intern"
     assert subs[0].cv_file_ref == "ABC123def456"
-    assert subs[1].cv_file_ref == "XYZ789ghijk"
     assert subs[0].email == "bob@x.com"
 
 
 # --------------------------------------------------------------------------- #
-# test-intake endpoint
+# /intake/status (site-level connection + role-column detection)
 # --------------------------------------------------------------------------- #
-@pytest.fixture
-def job_store(tmp_path, monkeypatch):
-    monkeypatch.setenv("CATALIST_JOB_STORE_PATH", str(tmp_path / "jobs.json"))
-
-
-def _make_job(google_sheet_id=None) -> str:
-    body = {
-        "title": "Role",
-        "job_description": "jd",
-        "rubric": {"job_title": "X", "criteria": [{"name": "c", "weight": 1.0}]},
-    }
-    if google_sheet_id is not None:
-        body["google_sheet_id"] = google_sheet_id
-    return client.post("/jobs", json=body).json()["id"]
-
-
-def test_test_intake_connected_true(job_store, monkeypatch):
-    captured: dict = {}
+def test_intake_status_google_connected(monkeypatch):
+    monkeypatch.setenv("INTAKE_MODE", "google")
+    monkeypatch.setenv("GOOGLE_SHEET_ID", "SHEET-A")
     monkeypatch.setattr(
         GoogleFormsIntakeSource,
         "_build_clients",
-        lambda self: (_fake_sheets(GOOD_ROWS, captured), object()),
+        lambda self: (_fake_sheets(GOOD_ROWS, {}), object()),
     )
-    jid = _make_job(google_sheet_id="SHEET-A")
-
-    resp = client.post(f"/jobs/{jid}/test-intake")
-    assert resp.status_code == 200
-    b = resp.json()
+    b = client.post("/intake/status").json()
     assert b["connected"] is True
-    assert b["row_count"] == 2  # excludes header
+    assert b["row_count"] == 2
+    assert b["role_column_detected"] is True
+    assert set(b["distinct_roles"]) == {"Backend Engineer", "Graphic Design Intern"}
     assert b["detected_columns"]["email"] == "Email"
-    assert b["detected_columns"]["cv"] == "CV Upload"
     assert b["error"] is None
-    assert captured["sheet_id"] == "SHEET-A"
 
 
-def test_test_intake_reports_failure_never_500(job_store, monkeypatch):
+def test_intake_status_reports_failure_never_500(monkeypatch):
+    monkeypatch.setenv("INTAKE_MODE", "google")
+    monkeypatch.setenv("GOOGLE_SHEET_ID", "SHEET-A")
+
     def boom(self):
         raise IntakeConfigError("Sheet not shared with the service account.")
 
     monkeypatch.setattr(GoogleFormsIntakeSource, "_build_clients", boom)
-    jid = _make_job(google_sheet_id="SHEET-A")
-
-    resp = client.post(f"/jobs/{jid}/test-intake")
-    assert resp.status_code == 200  # NOT a 500
-    b = resp.json()
+    b = client.post("/intake/status").json()
     assert b["connected"] is False
     assert "not shared" in b["error"].lower()
 
 
-def test_test_intake_no_sheet_configured(job_store):
-    jid = _make_job(google_sheet_id=None)
-    resp = client.post(f"/jobs/{jid}/test-intake")
-    assert resp.status_code == 200
-    b = resp.json()
+def test_intake_status_no_sheet_configured(monkeypatch):
+    monkeypatch.setenv("INTAKE_MODE", "google")
+    monkeypatch.delenv("GOOGLE_SHEET_ID", raising=False)
+    b = client.get("/intake/status").json()
     assert b["connected"] is False
     assert "no google sheet" in b["error"].lower()
 
 
-def test_test_intake_unknown_job_404(job_store):
-    assert client.post("/jobs/nope/test-intake").status_code == 404
-
-
-def test_ingest_google_read_failure_is_502_not_500(job_store, tmp_path, monkeypatch):
-    # A Google-connected job whose Sheet read fails (API disabled, not shared…)
-    # must surface a clean, actionable error, never a raw 500.
+# --------------------------------------------------------------------------- #
+# /ingest surfaces a Sheet read failure as a clean 502, never a raw 500
+# --------------------------------------------------------------------------- #
+def test_site_ingest_google_read_failure_is_502_not_500(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTAKE_MODE", "google")
+    monkeypatch.setenv("GOOGLE_SHEET_ID", "SHEET-A")
+    monkeypatch.setenv("CATALIST_JOB_STORE_PATH", str(tmp_path / "jobs.json"))
     monkeypatch.setenv("CATALIST_CANDIDATE_STORE_PATH", str(tmp_path / "candidates.json"))
 
     def boom(self):
         raise IntakeConfigError("Google Sheets API is disabled for this project.")
 
     monkeypatch.setattr(GoogleFormsIntakeSource, "_build_clients", boom)
-    jid = _make_job(google_sheet_id="SHEET-A")
-
-    resp = client.post(f"/jobs/{jid}/ingest")
+    client.post(
+        "/jobs",
+        json={
+            "title": "Role",
+            "role_key": "Backend Engineer",
+            "job_description": "jd",
+            "rubric": {"job_title": "X", "criteria": [{"name": "c", "weight": 1.0}]},
+        },
+    )
+    resp = client.post("/ingest")
     assert resp.status_code == 502
     assert "Sheets API is disabled" in resp.json()["detail"]
 
@@ -159,3 +146,4 @@ def test_probe_empty_sheet_is_connected_zero_rows(monkeypatch):
     result = GoogleFormsIntakeSource(sheet_id="SHEET-A").probe()
     assert result["connected"] is True
     assert result["row_count"] == 0
+    assert result["role_column_detected"] is False

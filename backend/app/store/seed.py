@@ -32,6 +32,7 @@ def load_seed_jobs(
             Job(
                 id=entry["id"],
                 title=entry["title"],
+                role_key=entry.get("role_key", ""),
                 job_description=entry["job_description"],
                 rubric=rubric,
                 status=entry.get("status", "open"),

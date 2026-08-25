@@ -1,4 +1,4 @@
-"""API tests for job-scoped ingestion + listing (offline, mock+local)."""
+"""API tests for the site-level POST /ingest + listing (offline, mock+local)."""
 from __future__ import annotations
 
 import pytest
@@ -19,34 +19,30 @@ def _isolated(tmp_path, monkeypatch):
     seed_jobs(JSONJobRepository(path=tmp_path / "jobs.json"))
 
 
-def test_old_global_ingest_endpoint_is_gone():
-    # The global POST /ingest was removed in favour of POST /jobs/{id}/ingest.
-    assert client.post("/ingest").status_code == 404
+def test_old_per_job_ingest_endpoint_is_gone():
+    # Per-job ingest was replaced by the single site-level POST /ingest.
+    assert client.post("/jobs/backend-engineer/ingest").status_code == 404
 
 
-def test_job_scoped_ingest_then_list_ranked():
-    resp = client.post("/jobs/backend-engineer/ingest")
+def test_site_ingest_then_list_ranked():
+    resp = client.post("/ingest")
     assert resp.status_code == 200
     summary = resp.json()
-    assert summary["processed"] == 3
+    assert summary["processed_by_job"] == {"backend-engineer": 3, "graphic-designer": 1}
+    assert summary["held_by_role"] == {"Motion Designer": 1}
     assert summary["failed"] == 0
 
-    resp = client.get("/jobs/backend-engineer/candidates")
-    assert resp.status_code == 200
-    records = resp.json()
+    records = client.get("/jobs/backend-engineer/candidates").json()
     assert len(records) == 3
     scores = [r["evaluation"]["overall_score"] for r in records]
     assert scores == sorted(scores, reverse=True)
 
 
-def test_ingest_unknown_job_404():
-    assert client.post("/jobs/nope/ingest").status_code == 404
-
-
-def test_ingest_is_idempotent_per_job():
-    first = client.post("/jobs/backend-engineer/ingest").json()
-    assert first["processed"] == 3
-    second = client.post("/jobs/backend-engineer/ingest").json()
+def test_site_ingest_is_idempotent():
+    first = client.post("/ingest").json()
+    assert first["processed"] == 4
+    second = client.post("/ingest").json()
     assert second["processed"] == 0
-    assert second["skipped"] == 3
+    assert second["skipped_duplicate"] == 4
+    assert second["held_by_role"] == {"Motion Designer": 1}
     assert len(client.get("/jobs/backend-engineer/candidates").json()) == 3

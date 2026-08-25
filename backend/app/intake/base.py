@@ -24,8 +24,33 @@ class RawSubmission(BaseModel):
     email: Optional[str] = None
     submitted_at: Optional[datetime] = None
     cv_file_ref: str = Field(..., description="Source-specific pointer to the CV file.")
-    job_id: Optional[str] = Field(None, description="Which job this submission is for.")
+    # The role the applicant selected on the single form's dropdown. Ingestion
+    # routes the row to the job whose role_key matches this EXACTLY.
+    role: Optional[str] = Field(None, description="Exact form dropdown role value.")
+    job_id: Optional[str] = Field(None, description="Deprecated (per-job routing).")
     raw_row_data: dict[str, Any] = Field(default_factory=dict)
+
+
+def detect_role_column(headers: list[str]) -> str | None:
+    """Find the role-question header among ``headers``.
+
+    Uses ``FORM_ROLE_COLUMN`` (exact, case-insensitive) when set; if that env is
+    set but not present in the sheet, returns None (a clear "not detected" so the
+    intake-status endpoint can report it). Otherwise auto-detects the first
+    header containing 'role'.
+    """
+    from app.config import get_form_role_column
+
+    override = (get_form_role_column() or "").strip()
+    if override:
+        for h in headers:
+            if h.strip().lower() == override.lower():
+                return h
+        return None
+    for h in headers:
+        if "role" in h.strip().lower():
+            return h
+    return None
 
 
 @runtime_checkable

@@ -41,6 +41,8 @@ class JobRow(Base):
     job_description: Mapped[str] = mapped_column(Text, nullable=False)
     rubric: Mapped[dict] = mapped_column(JSON, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
+    # Phase 15: exact form dropdown value this job serves (routing key).
+    role_key: Mapped[str] = mapped_column(String, nullable=False, default="")
     google_sheet_id: Mapped[str | None] = mapped_column(String, nullable=True)
     assignment_brief_filename: Mapped[str | None] = mapped_column(String, nullable=True)
     assignment_deadline_days: Mapped[int | None] = mapped_column(Integer, nullable=True)

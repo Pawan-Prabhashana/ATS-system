@@ -126,42 +126,127 @@ def run_ingestion(
     return summary
 
 
-def _process_one(
+class SiteIngestionSummary(BaseModel):
+    """Result of a site-level (all-roles) ingestion run (Phase 15)."""
+
+    processed: int = 0
+    processed_by_job: dict[str, int] = Field(default_factory=dict)
+    skipped_duplicate: int = 0
+    held_total: int = 0
+    # Role string -> count. Applicants for a role with no configured job yet —
+    # NOT stored/parsed; they stay in the sheet until that job exists. This is
+    # what surfaces "you have applicants for a role with no job set up".
+    held_by_role: dict[str, int] = Field(default_factory=dict)
+    failed: int = 0
+    failures: list[IngestionFailure] = Field(default_factory=list)
+    processed_candidate_ids: list[str] = Field(default_factory=list)
+
+
+def run_site_ingestion(
+    jobs: list[Job],
+    *,
+    intake_source: IntakeSource | None = None,
+    store: CandidateRepository | None = None,
+    evaluator: Evaluator | None = None,
+    work_dir: str | Path | None = None,
+) -> SiteIngestionSummary:
+    """Pull ALL new rows from the single site form and route each to the job
+    whose ``role_key`` matches the row's ``role`` EXACTLY (never a fuzzy/AI
+    guess). Rows whose role has no configured job are HELD (counted per role, not
+    stored or parsed — they remain in the sheet for a later run). One bad row is
+    recorded and skipped; it never aborts the batch.
+    """
+    intake_source = intake_source or get_intake_source()
+    store = store or get_candidate_store()
+    evaluator = evaluator or get_evaluator()
+
+    by_role = {j.role_key: j for j in jobs if j.role_key}
+    summary = SiteIngestionSummary()
+    submissions = intake_source.fetch_new_submissions()
+
+    tmp_ctx = None
+    if work_dir is None:
+        tmp_ctx = tempfile.TemporaryDirectory(prefix="catalist-ingest-")
+        work_dir = tmp_ctx.name
+    work_dir = Path(work_dir)
+
+    try:
+        for submission in submissions:
+            role = (submission.role or "").strip()
+            job = by_role.get(role)
+            if job is None:
+                key = role or "(no role selected)"
+                summary.held_by_role[key] = summary.held_by_role.get(key, 0) + 1
+                summary.held_total += 1
+                continue
+            try:
+                outcome, cid = _ingest_one(
+                    submission,
+                    effective_job_id=job.id,
+                    job_description=job.job_description,
+                    rubric=job.rubric,
+                    intake_source=intake_source,
+                    store=store,
+                    evaluator=evaluator,
+                    work_dir=work_dir,
+                )
+            except Exception as exc:  # noqa: BLE001 - one bad CV must not abort the batch
+                summary.failed += 1
+                summary.failures.append(
+                    IngestionFailure(
+                        submission_ref=submission.cv_file_ref,
+                        name=submission.name,
+                        reason=f"{type(exc).__name__}: {exc}",
+                    )
+                )
+                continue
+            if outcome == "skipped":
+                summary.skipped_duplicate += 1
+            else:
+                summary.processed += 1
+                summary.processed_by_job[job.id] = summary.processed_by_job.get(job.id, 0) + 1
+                summary.processed_candidate_ids.append(cid)
+    finally:
+        if tmp_ctx is not None:
+            tmp_ctx.cleanup()
+
+    return summary
+
+
+def _ingest_one(
     submission: RawSubmission,
     *,
-    job_id: str | None,
+    effective_job_id: str,
     job_description: str,
     rubric: Rubric,
     intake_source: IntakeSource,
     store: CandidateRepository,
     evaluator: Evaluator,
     work_dir: Path,
-    summary: IngestionSummary,
-) -> None:
+) -> tuple[str, str]:
+    """Download → parse → dedup → score → store ONE submission for a KNOWN job.
+
+    Returns ``("skipped", existing_id)`` when this ``(job, CV)`` is already
+    stored, else ``("processed", candidate_id)``. Raises on a bad CV — the caller
+    records it so one bad row never aborts the batch.
+    """
     # 1. Download the CV into the (temporary) working dir.
     cv_path = intake_source.download_cv(submission, work_dir)
 
-    # 2. Parse it (raises ValueError on a corrupt/non-PDF file). Parse artifacts
-    #    go to the temp work_dir; the stable copy is made below only for new
-    #    candidates, so we don't do disk work for dedup-skipped ones.
+    # 2. Parse it (raises ValueError on a corrupt/non-PDF file).
     candidate, parsed_cv = parse_cv_file(cv_path, output_root=work_dir)
 
-    effective_job = job_id or submission.job_id or ""
     file_hash = candidate.file_hash
-    scoped_id = _scoped_candidate_id(effective_job, file_hash)
+    scoped_id = _scoped_candidate_id(effective_job_id, file_hash)
 
     # 3. Dedup by (job_id, file_hash) — a CV can apply to two openings, but
-    #    re-running one job still skips its own duplicates.
-    existing = store.get_by_job_and_hash(effective_job, file_hash)
+    #    re-running still skips a job's own duplicates.
+    existing = store.get_by_job_and_hash(effective_job_id, file_hash)
     if existing is not None:
-        summary.skipped += 1
-        summary.skipped_candidate_ids.append(existing.id)
-        return
+        return ("skipped", existing.id)
 
     # 4. Persist CV + page images under the scoped id.
-    artifact_dir, cv_file, page_files = _persist_artifacts(
-        scoped_id, cv_path, parsed_cv
-    )
+    artifact_dir, cv_file, page_files = _persist_artifacts(scoped_id, cv_path, parsed_cv)
 
     # 5. Attach identity + job scoping; adopt the scoped id everywhere.
     candidate = candidate.model_copy(
@@ -169,7 +254,7 @@ def _process_one(
             "id": scoped_id,
             "name": submission.name,
             "email": submission.email,
-            "job_id": effective_job,
+            "job_id": effective_job_id,
             "status": CandidateStatus.parsed,
         }
     )
@@ -186,9 +271,39 @@ def _process_one(
         cv_file=cv_file,
         page_image_files=page_files,
     )
+    return ("processed", scoped_id)
 
-    summary.processed += 1
-    summary.processed_candidate_ids.append(candidate.id)
+
+def _process_one(
+    submission: RawSubmission,
+    *,
+    job_id: str | None,
+    job_description: str,
+    rubric: Rubric,
+    intake_source: IntakeSource,
+    store: CandidateRepository,
+    evaluator: Evaluator,
+    work_dir: Path,
+    summary: IngestionSummary,
+) -> None:
+    """Legacy per-job wrapper around :func:`_ingest_one`."""
+    effective_job = job_id or submission.job_id or ""
+    outcome, cid = _ingest_one(
+        submission,
+        effective_job_id=effective_job,
+        job_description=job_description,
+        rubric=rubric,
+        intake_source=intake_source,
+        store=store,
+        evaluator=evaluator,
+        work_dir=work_dir,
+    )
+    if outcome == "skipped":
+        summary.skipped += 1
+        summary.skipped_candidate_ids.append(cid)
+    else:
+        summary.processed += 1
+        summary.processed_candidate_ids.append(cid)
 
 
 def _persist_artifacts(

@@ -87,6 +87,7 @@ def test_jobs_crud_api(api):
     body = {
         "title": "Data Scientist",
         "job_description": "Build models.",
+        "role_key": "Data Scientist",
         "rubric": _rubric().model_dump(),
     }
     resp = client.post("/jobs", json=body)
@@ -98,8 +99,8 @@ def test_jobs_crud_api(api):
     assert client.get("/jobs/missing").status_code == 404
     assert len(client.get("/jobs").json()) == 1
 
-    # Same title again -> a fresh job with a suffixed id (not a 409).
-    resp2 = client.post("/jobs", json=body)
+    # Same title again -> a fresh job with a suffixed id (distinct role_key).
+    resp2 = client.post("/jobs", json={**body, "role_key": "Senior Data Scientist"})
     assert resp2.status_code == 201
     assert resp2.json()["id"] == "data-scientist-2"
     assert len(client.get("/jobs").json()) == 2
