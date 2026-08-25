@@ -56,6 +56,8 @@ class OpenRouterEvaluator:
         parsed_cv: ParsedCV,
         job_description: str,
         rubric: Rubric,
+        *,
+        pdf_bytes: bytes | None = None,  # noqa: ARG002 - pdf_direct is anthropic-only
     ) -> Evaluation:
         api_key = get_openrouter_api_key()
         if not api_key:

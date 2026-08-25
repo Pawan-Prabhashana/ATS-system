@@ -172,6 +172,25 @@ class GoogleFormsIntakeSource:
             "error": None,
         }
 
+    def download_cv_bytes(self, file_id: str) -> bytes:
+        """Download a Drive file's bytes IN MEMORY (no disk write) — used by the
+        PDF viewer endpoint so CV serving is serverless-safe. Errors surface as
+        IntakeConfigError, never a raw exception."""
+        _sheets, drive = self._build_clients()
+        try:
+            from googleapiclient.http import MediaIoBaseDownload
+
+            buf = io.BytesIO()
+            downloader = MediaIoBaseDownload(buf, drive.files().get_media(fileId=file_id))
+            done = False
+            while not done:
+                _status, done = downloader.next_chunk()
+            return buf.getvalue()
+        except IntakeConfigError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise IntakeConfigError(f"Failed to download Drive file {file_id}: {exc}") from exc
+
     def download_cv(self, submission: RawSubmission, dest_dir: Path) -> Path:
         _sheets, drive = self._build_clients()
         dest_dir = Path(dest_dir)

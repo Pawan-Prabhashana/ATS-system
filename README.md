@@ -425,6 +425,7 @@ Environment variables (see `app/config.py`):
 | `CATALIST_LOW_TEXT_THRESHOLD` | `100` | Below this many extracted characters → `low` |
 | `CATALIST_RENDER_DPI` | `150` | DPI for page-image rendering |
 | `EVALUATOR_MODE` | `mock` | `mock` (offline), `openrouter`, or `anthropic` |
+| `CV_MODE` | `render` | `render` (default) or `pdf_direct` (send PDF straight to Claude, no rendering); `pdf_direct` requires `EVALUATOR_MODE=anthropic` |
 | `OPENROUTER_API_KEY` | _(unset)_ | Required only when `EVALUATOR_MODE=openrouter` |
 | `OPENROUTER_MODEL` | `anthropic/claude-3.5-sonnet` | Any OpenRouter model id, e.g. `openai/gpt-4o` |
 | `OPENROUTER_API_BASE` | `https://openrouter.ai/api/v1` | Override for a compatible endpoint |
@@ -772,6 +773,48 @@ email** (per the domain note above) or Resend will reject it.
 > and send nothing.
 
 ---
+
+## PDF-direct scoring (experimental, flag-gated — Phase 16)
+
+The default flow renders each CV to page images (needs the **poppler** system
+binary) and stores/serves those images (needs local disk) — the two things that
+force a heavyweight host. **`CV_MODE=pdf_direct`** is a simpler alternative,
+built alongside the default so they can be compared before anything is removed:
+
+- **Scoring** sends the PDF **straight to Claude** as a native `document` block
+  (Claude reads PDFs, layout included) — no rendering. The rubric's
+  `requires_visual_review` still only controls what the prompt *asks* for; the
+  PDF always carries layout, so visual assessment works for creative roles with
+  no rendering. **Requires `EVALUATOR_MODE=anthropic`** — with any other
+  evaluator, ingestion fails with a clear config error at first use (a clean
+  400, not a 500), never at import.
+- **Ingestion** still downloads the CV and computes `file_hash` (dedup
+  unchanged) but **skips poppler and writes no page images**. The candidate
+  records its Drive origin (`cv_drive_file_id`) when the CV came from a Google
+  Form, and/or the persisted local PDF.
+- **Viewing:** `GET /candidates/{id}/cv` streams the CV PDF inline
+  (`application/pdf`), **behind login** (a security improvement over the public
+  `/media` path, which stays as-is for render mode this phase). It fetches the
+  bytes from Drive **in memory** (no disk — serverless-safe) when
+  `cv_drive_file_id` is set, else streams the local PDF, else 404. The reviewer
+  UI embeds this when a candidate has no page images.
+
+`CV_MODE=render` (the default) is **byte-for-byte unchanged** — still renders +
+stores images, still serves them from `/media`. This phase changes no defaults;
+a later phase can drop poppler + image storage once pdf_direct is proven.
+
+**Compare the two on real CVs** (opt-in, spends real Anthropic credits):
+
+```bash
+RUN_SCORING_COMPARE=1 ANTHROPIC_API_KEY=sk-ant-... \
+  python -m scripts.compare_scoring [extra_cv.pdf ...]
+```
+
+It scores each CV **both** ways (render+images and pdf_direct) against a
+content-only rubric **and** a creative/visual rubric, and prints per-criterion
+scores, overall, recommendation, and the delta. ⚠️ Each CV is scored twice per
+rubric = 2 live calls; pdf_direct sends the whole PDF (more input tokens), so
+expect a few cents on Sonnet for the sample set, more for large real CVs.
 
 ## Single-form intake, routed by role (Phase 15)
 

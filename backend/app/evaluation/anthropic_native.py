@@ -11,9 +11,10 @@ Everything credential-related is lazy: importing this module and constructing
 """
 from __future__ import annotations
 
+import base64
 import json
 import time
-from typing import Any
+from typing import Any, Optional
 
 from app.config import (
     get_anthropic_api_key,
@@ -51,6 +52,8 @@ class AnthropicEvaluator:
         parsed_cv: ParsedCV,
         job_description: str,
         rubric: Rubric,
+        *,
+        pdf_bytes: Optional[bytes] = None,
     ) -> Evaluation:
         api_key = get_anthropic_api_key()
         if not api_key:
@@ -61,7 +64,7 @@ class AnthropicEvaluator:
 
         model = self._model_override or get_anthropic_model()
         system_prompt, user_content = self._build_content(
-            parsed_cv, job_description, rubric
+            parsed_cv, job_description, rubric, pdf_bytes=pdf_bytes
         )
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_content}]
 
@@ -92,15 +95,35 @@ class AnthropicEvaluator:
         parsed_cv: ParsedCV,
         job_description: str,
         rubric: Rubric,
+        *,
+        pdf_bytes: Optional[bytes] = None,
     ) -> tuple[str, list[dict[str, Any]]]:
         system_prompt = build_system_prompt(job_description, rubric)
         include_images = rubric.requires_visual_review
 
+        # pdf_direct (Phase 16): attach the CV as a native Anthropic document
+        # block — Claude reads the PDF (layout included) itself, so no rendering
+        # is needed and visual assessment works for creative roles too. The
+        # rubric's requires_visual_review still only controls what the prompt
+        # ASKS for (via include_images), which shapes build_user_text.
+        if pdf_bytes is not None:
+            document_block = {
+                "type": "document",
+                "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
+                    "data": base64.b64encode(pdf_bytes).decode("ascii"),
+                },
+            }
+            text_block = {"type": "text", "text": build_user_text(parsed_cv.raw_text, include_images)}
+            # Document before the text, per Anthropic's PDF guidance.
+            return system_prompt, [document_block, text_block]
+
+        # render mode (default): text + rendered page images (images only when
+        # the rubric asks for visual review — the cost/latency saving).
         user_content: list[dict[str, Any]] = [
             {"type": "text", "text": build_user_text(parsed_cv.raw_text, include_images)}
         ]
-        # Native Anthropic image blocks — ONLY when the rubric asks for visual
-        # review (the cost/latency saving for content-only rubrics).
         if include_images:
             for page_image in parsed_cv.page_images[: settings.max_eval_pages]:
                 try:

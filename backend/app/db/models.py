@@ -74,6 +74,7 @@ class CandidateRow(Base):
     email: Mapped[str | None] = mapped_column(String, nullable=True)
     source_form_row: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cv_filename: Mapped[str] = mapped_column(String, nullable=False)
+    cv_drive_file_id: Mapped[str | None] = mapped_column(String, nullable=True)  # Phase 16 pdf_direct
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
     reviewer_note: Mapped[str | None] = mapped_column(Text, nullable=True)

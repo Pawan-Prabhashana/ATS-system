@@ -32,12 +32,14 @@ def parse_cv_bytes(
     *,
     candidate_id: str | None = None,
     output_root: Path | None = None,
+    render_images: bool = True,
 ) -> tuple[Candidate, ParsedCV]:
     """Parse a CV supplied as raw bytes.
 
-    Persists the PDF and rendered page images under a per-candidate output dir.
-    Raises ``ValueError`` for non-PDF / corrupt input (callers should turn this
-    into a clean 4xx rather than a stack trace).
+    Persists the PDF and (when ``render_images``) rendered page images under a
+    per-candidate output dir. ``render_images=False`` (Phase 16 pdf_direct) skips
+    the poppler render entirely — no images are produced. Raises ``ValueError``
+    for non-PDF / corrupt input (callers should turn this into a clean 4xx).
     """
     if not data:
         raise ValueError("Empty file: no PDF bytes received.")
@@ -62,6 +64,7 @@ def parse_cv_bytes(
         candidate_id=candidate_id,
         file_hash=file_hash,
         images_dir=candidate_dir / "pages",
+        render_images=render_images,
     )
 
 
@@ -70,6 +73,7 @@ def parse_cv_file(
     *,
     candidate_id: str | None = None,
     output_root: Path | None = None,
+    render_images: bool = True,
 ) -> tuple[Candidate, ParsedCV]:
     """Parse a CV from a filesystem path (used by the CLI)."""
     pdf_path = Path(pdf_path)
@@ -81,6 +85,7 @@ def parse_cv_file(
         filename=pdf_path.name,
         candidate_id=candidate_id,
         output_root=output_root,
+        render_images=render_images,
     )
 
 
@@ -91,6 +96,7 @@ def _parse_pdf_at(
     candidate_id: str,
     file_hash: str,
     images_dir: Path,
+    render_images: bool = True,
 ) -> tuple[Candidate, ParsedCV]:
     warnings: list[str] = []
 
@@ -100,16 +106,18 @@ def _parse_pdf_at(
 
     # 2. Image rendering. A rendering failure should NOT lose the parsed text,
     #    so we degrade gracefully and record a warning instead of crashing.
+    #    In pdf_direct mode we skip rendering entirely (no poppler, no images).
     page_images = []
-    try:
-        image_result = render_pages(pdf_path, images_dir)
-        page_images = image_result.page_images
-        warnings.extend(image_result.warnings)
-    except RuntimeError as exc:
-        # e.g. poppler missing — surface loudly but keep the ParsedCV.
-        warnings.append(str(exc))
-    except ValueError as exc:
-        warnings.append(f"Image rendering skipped: {exc}")
+    if render_images:
+        try:
+            image_result = render_pages(pdf_path, images_dir)
+            page_images = image_result.page_images
+            warnings.extend(image_result.warnings)
+        except RuntimeError as exc:
+            # e.g. poppler missing — surface loudly but keep the ParsedCV.
+            warnings.append(str(exc))
+        except ValueError as exc:
+            warnings.append(f"Image rendering skipped: {exc}")
 
     # 3. Quality flag.
     quality = (

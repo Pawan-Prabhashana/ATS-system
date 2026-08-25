@@ -9,9 +9,10 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from app.config import settings
+from app.config import get_cv_mode, settings
 from app.evaluation import get_evaluator
 from app.evaluation.base import Evaluator
+from app.evaluation.errors import EvaluatorConfigError
 from app.intake.base import IntakeSource, RawSubmission
 from app.intake.factory import get_intake_source
 from app.intake.local_fixture import LocalFixtureIntakeSource
@@ -29,6 +30,16 @@ def _scoped_candidate_id(job_id: str, file_hash: str) -> str:
     """Per-(job, CV) candidate id, so the same CV can exist under two jobs
     without colliding in the store (which keys on candidate id)."""
     return hashlib.sha256(f"{job_id}\x00{file_hash}".encode()).hexdigest()[:16]
+
+
+def _require_pdf_direct_supported(evaluator: Evaluator) -> None:
+    """pdf_direct needs Claude's native PDF support. Fail clearly at first use
+    (not import) when CV_MODE=pdf_direct but the evaluator isn't anthropic."""
+    if get_cv_mode() == "pdf_direct" and getattr(evaluator, "name", "") != "anthropic":
+        raise EvaluatorConfigError(
+            "CV_MODE=pdf_direct requires EVALUATOR_MODE=anthropic (Claude's native "
+            f"PDF support); the active evaluator is {getattr(evaluator, 'name', '?')!r}."
+        )
 
 
 def build_intake_source_for_job(job: Job) -> IntakeSource:
@@ -84,6 +95,7 @@ def run_ingestion(
     intake_source = intake_source or get_intake_source()
     store = store or get_candidate_store()
     evaluator = evaluator or get_evaluator()
+    _require_pdf_direct_supported(evaluator)
 
     summary = IngestionSummary()
 
@@ -159,6 +171,7 @@ def run_site_ingestion(
     intake_source = intake_source or get_intake_source()
     store = store or get_candidate_store()
     evaluator = evaluator or get_evaluator()
+    _require_pdf_direct_supported(evaluator)
 
     by_role = {j.role_key: j for j in jobs if j.role_key}
     summary = SiteIngestionSummary()
@@ -230,11 +243,14 @@ def _ingest_one(
     stored, else ``("processed", candidate_id)``. Raises on a bad CV — the caller
     records it so one bad row never aborts the batch.
     """
+    pdf_direct = get_cv_mode() == "pdf_direct"
+
     # 1. Download the CV into the (temporary) working dir.
     cv_path = intake_source.download_cv(submission, work_dir)
 
-    # 2. Parse it (raises ValueError on a corrupt/non-PDF file).
-    candidate, parsed_cv = parse_cv_file(cv_path, output_root=work_dir)
+    # 2. Parse it (raises ValueError on a corrupt/non-PDF file). pdf_direct skips
+    #    the poppler render entirely — text + hash only, no page images.
+    candidate, parsed_cv = parse_cv_file(cv_path, output_root=work_dir, render_images=not pdf_direct)
 
     file_hash = candidate.file_hash
     scoped_id = _scoped_candidate_id(effective_job_id, file_hash)
@@ -245,23 +261,31 @@ def _ingest_one(
     if existing is not None:
         return ("skipped", existing.id)
 
-    # 4. Persist CV + page images under the scoped id.
+    # 4. Persist the CV under the scoped id (page_images is empty in pdf_direct,
+    #    so no images are written — serverless-friendly).
     artifact_dir, cv_file, page_files = _persist_artifacts(scoped_id, cv_path, parsed_cv)
 
-    # 5. Attach identity + job scoping; adopt the scoped id everywhere.
+    # 5. Attach identity + job scoping; adopt the scoped id everywhere. Record the
+    #    Drive origin (google source) so the PDF viewer can fetch it on demand.
+    cv_drive_file_id = (
+        submission.cv_file_ref if getattr(intake_source, "name", "") == "google_forms" else None
+    )
     candidate = candidate.model_copy(
         update={
             "id": scoped_id,
             "name": submission.name,
             "email": submission.email,
             "job_id": effective_job_id,
+            "cv_drive_file_id": cv_drive_file_id,
             "status": CandidateStatus.parsed,
         }
     )
     parsed_cv = parsed_cv.model_copy(update={"candidate_id": scoped_id})
 
-    # 6. Evaluate, mark scored, persist the record.
-    evaluation = evaluator.evaluate(parsed_cv, job_description, rubric)
+    # 6. Evaluate, mark scored, persist the record. In pdf_direct the PDF bytes
+    #    go straight to Claude (native document block) instead of page images.
+    pdf_bytes = cv_path.read_bytes() if pdf_direct else None
+    evaluation = evaluator.evaluate(parsed_cv, job_description, rubric, pdf_bytes=pdf_bytes)
     candidate = candidate.model_copy(update={"status": CandidateStatus.scored})
     store.upsert(
         candidate,

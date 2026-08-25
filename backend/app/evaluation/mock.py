@@ -33,6 +33,8 @@ class MockEvaluator:
         parsed_cv: ParsedCV,
         job_description: str,  # noqa: ARG002 - part of the interface contract
         rubric: Rubric,
+        *,
+        pdf_bytes: bytes | None = None,  # noqa: ARG002 - mock ignores pdf_direct
     ) -> Evaluation:
         criterion_scores: list[CriterionScore] = []
         weighted_sum = 0.0

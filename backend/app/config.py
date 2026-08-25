@@ -118,6 +118,17 @@ def get_intake_mode() -> str:
     return os.getenv("INTAKE_MODE", DEFAULT_INTAKE_MODE).strip().lower()
 
 
+def get_cv_mode() -> str:
+    """How CVs are handled for scoring + viewing (Phase 16):
+      - ``render`` (default, unchanged): render pages to images (poppler), store
+        + serve the images.
+      - ``pdf_direct``: send the PDF straight to Claude (native document block),
+        no rendering, no image storage; the reviewer embeds the PDF.
+    ``pdf_direct`` requires ``EVALUATOR_MODE=anthropic`` (Claude's native PDF
+    support) — enforced at first use, not import."""
+    return os.getenv("CV_MODE", "render").strip().lower()
+
+
 def get_candidate_store_path() -> Path:
     override = os.getenv("CATALIST_CANDIDATE_STORE_PATH")
     return Path(override) if override else DEFAULT_CANDIDATE_STORE_PATH

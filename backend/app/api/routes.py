@@ -1,14 +1,17 @@
 """FastAPI routes: parsing core (Phase 1) + ingestion/listing/review (Phase 3-4)."""
 from __future__ import annotations
 
+import io
 import re
 from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ValidationError
 
+from app.config import settings
 from app.email.factory import get_email_sender
+from app.evaluation.errors import EvaluatorConfigError
 from app.intake.errors import IntakeError
 from app.intake.factory import get_intake_source
 from app.models import (
@@ -202,6 +205,10 @@ def site_ingest() -> SiteIngestionSummary:
     jobs = get_job_repository().list_all()
     try:
         return run_site_ingestion(jobs)
+    except EvaluatorConfigError as exc:
+        # e.g. CV_MODE=pdf_direct without EVALUATOR_MODE=anthropic — a clean 400,
+        # never a raw 500.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except IntakeError as exc:
         # Reading the site sheet failed (API disabled / not shared / no sheet).
         raise HTTPException(
@@ -420,6 +427,10 @@ class CandidateDetail(BaseModel):
     text_extraction_quality: Optional[str] = None
     cv_url: Optional[str] = None
     page_image_urls: list[str] = []
+    # Auth-protected PDF stream (Phase 16). Present when a PDF is retrievable
+    # (Drive origin or a persisted local PDF). The frontend embeds this when
+    # there are no page images (pdf_direct mode).
+    cv_pdf_url: Optional[str] = None
     # Job context, joined at read time.
     job_id: Optional[str] = None
     job_title: Optional[str] = None
@@ -429,10 +440,22 @@ def _media_url(candidate_id: str, filename: str) -> str:
     return f"{MEDIA_PREFIX}/{candidate_id}/{filename}"
 
 
+def _local_cv_path(record: CandidateRecord):
+    """Filesystem path to the persisted CV PDF, or None if not on disk."""
+    if not record.cv_file or not record.artifact_dir:
+        return None
+    path = settings.data_dir / record.artifact_dir / record.cv_file
+    return path if path.exists() else None
+
+
 def _to_detail(record: CandidateRecord) -> CandidateDetail:
     cid = record.candidate.id
     cv_url = _media_url(cid, record.cv_file) if record.cv_file else None
     page_urls = [_media_url(cid, name) for name in record.page_image_files]
+
+    # A PDF is retrievable if it came from Drive or a local copy exists.
+    has_pdf = bool(record.candidate.cv_drive_file_id) or _local_cv_path(record) is not None
+    cv_pdf_url = f"/candidates/{cid}/cv" if has_pdf else None
 
     job_id = record.candidate.job_id or None
     job_title = None
@@ -447,6 +470,7 @@ def _to_detail(record: CandidateRecord) -> CandidateDetail:
         text_extraction_quality=record.text_extraction_quality,
         cv_url=cv_url,
         page_image_urls=page_urls,
+        cv_pdf_url=cv_pdf_url,
         job_id=job_id,
         job_title=job_title,
     )
@@ -458,6 +482,38 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
     if record is None:
         raise HTTPException(status_code=404, detail=f"Candidate {candidate_id!r} not found.")
     return _to_detail(record)
+
+
+@router.get("/candidates/{candidate_id}/cv")
+def get_candidate_cv(candidate_id: str):
+    """Stream the CV PDF inline (auth-protected — CVs sit behind login).
+
+    Drive origin -> fetch the bytes via the service account, in memory (no disk,
+    serverless-safe); else the persisted local PDF; else 404."""
+    record = get_candidate_store().get(candidate_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"Candidate {candidate_id!r} not found.")
+    filename = record.candidate.cv_filename or "cv.pdf"
+
+    drive_id = record.candidate.cv_drive_file_id
+    if drive_id:
+        from app.intake.google_forms import GoogleFormsIntakeSource
+
+        try:
+            data = GoogleFormsIntakeSource().download_cv_bytes(drive_id)
+        except IntakeError as exc:
+            raise HTTPException(status_code=502, detail=f"Couldn't fetch the CV from Drive: {exc}") from exc
+        return StreamingResponse(
+            io.BytesIO(data),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        )
+
+    local = _local_cv_path(record)
+    if local is not None:
+        return FileResponse(local, media_type="application/pdf", filename=filename)
+
+    raise HTTPException(status_code=404, detail="No CV file available for this candidate.")
 
 
 class DecisionRequest(BaseModel):

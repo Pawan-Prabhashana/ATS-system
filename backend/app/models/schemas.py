@@ -63,6 +63,10 @@ class Candidate(BaseModel):
     )
     cv_filename: str
     file_hash: str = Field(..., description="SHA-256 of the raw PDF bytes; used for dedup.")
+    # Phase 16 (pdf_direct): the Drive file id the CV came from, so the PDF
+    # viewer can fetch it on demand without local image storage. None for
+    # fixture/local CVs (served from the persisted local PDF instead).
+    cv_drive_file_id: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: CandidateStatus = CandidateStatus.parsed
     # Human review (Phase 4). Populated by the approval gate; None until decided.

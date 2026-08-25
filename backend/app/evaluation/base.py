@@ -6,7 +6,7 @@ protocol and is dropped in with **no changes** to parsing or API code.
 """
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
 from app.models import Evaluation, ParsedCV, Rubric
 
@@ -22,6 +22,13 @@ class Evaluator(Protocol):
         parsed_cv: ParsedCV,
         job_description: str,
         rubric: Rubric,
+        *,
+        pdf_bytes: Optional[bytes] = None,
     ) -> Evaluation:
-        """Return a schema-valid :class:`Evaluation` for ``parsed_cv``."""
+        """Return a schema-valid :class:`Evaluation` for ``parsed_cv``.
+
+        ``pdf_bytes`` (Phase 16 pdf_direct) — when provided, an evaluator that
+        supports native PDF documents (Anthropic) attaches the PDF itself
+        instead of rendered page images. Other evaluators ignore it.
+        """
         ...
