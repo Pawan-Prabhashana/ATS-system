@@ -9,7 +9,7 @@ from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # --------------------------------------------------------------------------- #
@@ -109,6 +109,17 @@ class RubricCriterion(BaseModel):
     weight: float = Field(..., gt=0, description="Relative weight; need not sum to 1.")
 
 
+# The visual-design criterion that MUST exist whenever the "score visual design"
+# toggle (``requires_visual_review``) is on — so the visual score is always
+# produced and shown, not just when someone remembered to list it in the rubric.
+VISUAL_CRITERION_NAME = "Visual hierarchy & layout"
+VISUAL_CRITERION_WEIGHT = 3.0
+VISUAL_CRITERION_DESCRIPTION = (
+    "Quality of the CV's own visual hierarchy, layout, spacing, and section "
+    "design — assessed from the page images, as a proxy for design craft."
+)
+
+
 class Rubric(BaseModel):
     job_title: str = ""
     criteria: list[RubricCriterion] = Field(..., min_length=1)
@@ -121,6 +132,29 @@ class Rubric(BaseModel):
             "where document design matters (e.g. design/brand)."
         ),
     )
+
+    @model_validator(mode="after")
+    def _ensure_visual_criterion(self) -> "Rubric":
+        """When the visual-design toggle is on, guarantee the visual criterion is
+        present. This is the invariant behind "toggle on => visual score shown":
+        sending page images (requires_visual_review) is pointless if no criterion
+        scores what they show, so we inject one when it's missing rather than
+        silently drop the visual signal. Applied on every construction — API
+        create/update, ingest, and load-from-store — so it can't be bypassed.
+        """
+        if not self.requires_visual_review:
+            return self
+        if any("visual" in c.name.lower() for c in self.criteria):
+            return self
+        self.criteria.insert(
+            0,
+            RubricCriterion(
+                name=VISUAL_CRITERION_NAME,
+                description=VISUAL_CRITERION_DESCRIPTION,
+                weight=VISUAL_CRITERION_WEIGHT,
+            ),
+        )
+        return self
 
 
 class Job(BaseModel):

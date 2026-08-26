@@ -160,7 +160,11 @@ def test_job_full_fields_roundtrip(jobs):
     assert got.assignment_deadline_days == 7
     assert got.assignment_message == "hello"
     assert got.rubric.requires_visual_review is True
-    assert got.rubric.criteria[0].name == "craft"
+    # The visual-design toggle guarantees the visual criterion is present (it is
+    # auto-injected at index 0), and the original "craft" criterion roundtrips.
+    assert [c.name for c in got.rubric.criteria] == [c.name for c in j.rubric.criteria]
+    assert got.rubric.criteria[0].name == "Visual hierarchy & layout"
+    assert any(c.name == "craft" for c in got.rubric.criteria)
 
 
 # =========================================================================== #
