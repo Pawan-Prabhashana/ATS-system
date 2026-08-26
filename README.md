@@ -302,8 +302,13 @@ Claude model is just `ANTHROPIC_MODEL`. The interface, prompts, image prep
 
 ### 1. System dependency: poppler
 
-`pdf2image` renders PDF pages to images using **poppler**. Install the system
-package first:
+> **Note (Phase 17):** with the default `CV_MODE=pdf_direct`, a standard run no
+> longer needs the poppler binary — the PDF goes straight to Claude. poppler is
+> still required for the **render fallback** (`CV_MODE=render`), so it is kept in
+> the Dockerfile/requirements; removing it belongs to the future serverless phase.
+
+`pdf2image` renders PDF pages to images using **poppler** (the render path).
+Install the system package first:
 
 | OS | Command |
 | --- | --- |
@@ -425,7 +430,7 @@ Environment variables (see `app/config.py`):
 | `CATALIST_LOW_TEXT_THRESHOLD` | `100` | Below this many extracted characters → `low` |
 | `CATALIST_RENDER_DPI` | `150` | DPI for page-image rendering |
 | `EVALUATOR_MODE` | `mock` | `mock` (offline), `openrouter`, or `anthropic` |
-| `CV_MODE` | `render` | `render` (default) or `pdf_direct` (send PDF straight to Claude, no rendering); `pdf_direct` requires `EVALUATOR_MODE=anthropic` |
+| `CV_MODE` | `pdf_direct` | `pdf_direct` (default since Phase 17 — send PDF straight to Claude, no rendering, no image storage; **requires `EVALUATOR_MODE=anthropic`**) or `render` (fallback — render pages to images via poppler; use for a non-anthropic evaluator or oversized/scanned PDFs) |
 | `OPENROUTER_API_KEY` | _(unset)_ | Required only when `EVALUATOR_MODE=openrouter` |
 | `OPENROUTER_MODEL` | `anthropic/claude-3.5-sonnet` | Any OpenRouter model id, e.g. `openai/gpt-4o` |
 | `OPENROUTER_API_BASE` | `https://openrouter.ai/api/v1` | Override for a compatible endpoint |
@@ -774,12 +779,16 @@ email** (per the domain note above) or Resend will reject it.
 
 ---
 
-## PDF-direct scoring (experimental, flag-gated — Phase 16)
+## PDF-direct scoring (default since Phase 17)
 
-The default flow renders each CV to page images (needs the **poppler** system
-binary) and stores/serves those images (needs local disk) — the two things that
-force a heavyweight host. **`CV_MODE=pdf_direct`** is a simpler alternative,
-built alongside the default so they can be compared before anything is removed:
+**`CV_MODE=pdf_direct` is the default.** It was validated with
+`scripts/compare_scoring.py` across content-only and creative/visual rubrics:
+identical hire/reject decisions vs. render in every case, with a simpler pipeline
+(no poppler, no rendered-image storage). The older **render** path is retained as
+a documented fallback (`CV_MODE=render`) — use it for a non-anthropic evaluator,
+or for oversized/scanned PDFs beyond Anthropic's PDF limits (~100 pages / 32 MB).
+
+How pdf_direct works:
 
 - **Scoring** sends the PDF **straight to Claude** as a native `document` block
   (Claude reads PDFs, layout included) — no rendering. The rubric's
@@ -799,9 +808,12 @@ built alongside the default so they can be compared before anything is removed:
   `cv_drive_file_id` is set, else streams the local PDF, else 404. The reviewer
   UI embeds this when a candidate has no page images.
 
-`CV_MODE=render` (the default) is **byte-for-byte unchanged** — still renders +
-stores images, still serves them from `/media`. This phase changes no defaults;
-a later phase can drop poppler + image storage once pdf_direct is proven.
+`CV_MODE=render` (the fallback) is **byte-for-byte unchanged** — still renders +
+stores images, still serves them from `/media`. The guard fails fast with a
+clear 400 (never a 500 or import crash) if `pdf_direct` is active — including by
+default — while the evaluator isn't anthropic, telling you to set
+`EVALUATOR_MODE=anthropic` or `CV_MODE=render`. Dropping poppler + image storage
+entirely belongs to the future serverless phase, not this one.
 
 **Compare the two on real CVs** (opt-in, spends real Anthropic credits):
 

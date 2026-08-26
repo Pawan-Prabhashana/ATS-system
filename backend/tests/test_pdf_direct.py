@@ -122,6 +122,33 @@ def test_pdf_direct_without_anthropic_is_clean_config_error(tmp_path, monkeypatc
     assert "anthropic" in resp.json()["detail"].lower()
 
 
+def test_default_cv_mode_is_pdf_direct(monkeypatch):
+    """Phase 17: pdf_direct is the default; render is opt-in via CV_MODE=render."""
+    from app.config import get_cv_mode
+
+    monkeypatch.delenv("CV_MODE", raising=False)  # unset -> default
+    assert get_cv_mode() == "pdf_direct"
+    monkeypatch.setenv("CV_MODE", "render")
+    assert get_cv_mode() == "render"
+
+
+def test_default_unset_without_anthropic_is_clean_config_error(tmp_path, monkeypatch):
+    """With CV_MODE UNSET (so the pdf_direct default applies) and a non-anthropic
+    evaluator, ingestion must fail with a clear, actionable 400 — not a 500/crash
+    — naming both fixes (EVALUATOR_MODE=anthropic or CV_MODE=render)."""
+    monkeypatch.delenv("CV_MODE", raising=False)  # unset -> pdf_direct default
+    monkeypatch.setenv("CATALIST_JOB_STORE_PATH", str(tmp_path / "jobs.json"))
+    monkeypatch.setenv("CATALIST_CANDIDATE_STORE_PATH", str(tmp_path / "candidates.json"))
+    monkeypatch.delenv("EVALUATOR_MODE", raising=False)  # -> mock, not anthropic
+    monkeypatch.delenv("INTAKE_MODE", raising=False)
+    seed_jobs(JSONJobRepository(path=tmp_path / "jobs.json"))
+
+    resp = client.post("/ingest")
+    assert resp.status_code == 400  # clean config error, not a 500
+    detail = resp.json()["detail"].lower()
+    assert "anthropic" in detail and "render" in detail
+
+
 # --------------------------------------------------------------------------- #
 # GET /candidates/{id}/cv
 # --------------------------------------------------------------------------- #
@@ -133,7 +160,10 @@ def ingested(tmp_path, monkeypatch):
     monkeypatch.setattr("app.config.settings.data_dir", tmp_path / "data")
     monkeypatch.delenv("EVALUATOR_MODE", raising=False)
     monkeypatch.delenv("INTAKE_MODE", raising=False)
-    monkeypatch.delenv("CV_MODE", raising=False)
+    # This fixture exercises the RENDER path with the mock evaluator (it needs a
+    # local cv.pdf + page images). pdf_direct is now the default, so pin render
+    # explicitly rather than relying on the default.
+    monkeypatch.setenv("CV_MODE", "render")
     seed_jobs(JSONJobRepository(path=tmp_path / "jobs.json"))
     assert client.post("/ingest").status_code == 200
     return client.get("/candidates").json()

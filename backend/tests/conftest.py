@@ -41,6 +41,21 @@ def _isolate_data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr("app.config.settings.data_dir", tmp_path / "data")
 
 
+@pytest.fixture(autouse=True)
+def _default_cv_mode_render(monkeypatch):
+    """Pin CV_MODE=render for the offline suite.
+
+    Since Phase 17 the CV_MODE default is ``pdf_direct``, which requires
+    ``EVALUATOR_MODE=anthropic``. The offline suite runs on the ``mock``
+    evaluator (no network), so the render path is the ONLY valid path here — we
+    pin it explicitly rather than let the new default trip the pdf_direct guard.
+    Tests that specifically exercise pdf_direct override this in their own body
+    (they set ``CV_MODE=pdf_direct``, which wins as it runs after this fixture).
+    The new default itself is proven directly in ``test_pdf_direct.py``.
+    """
+    monkeypatch.setenv("CV_MODE", "render")
+
+
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",

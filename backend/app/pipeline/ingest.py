@@ -34,11 +34,17 @@ def _scoped_candidate_id(job_id: str, file_hash: str) -> str:
 
 def _require_pdf_direct_supported(evaluator: Evaluator) -> None:
     """pdf_direct needs Claude's native PDF support. Fail clearly at first use
-    (not import) when CV_MODE=pdf_direct but the evaluator isn't anthropic."""
+    (not import) when CV_MODE=pdf_direct but the evaluator isn't anthropic.
+
+    Since Phase 17 pdf_direct is the DEFAULT, so this also fires when CV_MODE is
+    simply unset and a non-anthropic evaluator is active — the message names both
+    fixes so it's actionable either way."""
     if get_cv_mode() == "pdf_direct" and getattr(evaluator, "name", "") != "anthropic":
         raise EvaluatorConfigError(
-            "CV_MODE=pdf_direct requires EVALUATOR_MODE=anthropic (Claude's native "
-            f"PDF support); the active evaluator is {getattr(evaluator, 'name', '?')!r}."
+            "CV_MODE=pdf_direct (the default) requires EVALUATOR_MODE=anthropic "
+            "(Claude's native PDF support); the active evaluator is "
+            f"{getattr(evaluator, 'name', '?')!r}. Either set EVALUATOR_MODE=anthropic, "
+            "or set CV_MODE=render to use the render (poppler) fallback."
         )
 
 
