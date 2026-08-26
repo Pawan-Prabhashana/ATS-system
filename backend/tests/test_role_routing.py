@@ -130,10 +130,13 @@ def test_intake_status_detects_role_column():
     assert s["error"] is None
 
 
-def test_intake_status_reports_missing_role_column(monkeypatch):
-    # FORM_ROLE_COLUMN pointing at a header that doesn't exist -> not detected.
+def test_intake_status_falls_through_when_role_column_env_wrong(monkeypatch):
+    # A wrong/typo'd FORM_ROLE_COLUMN must NOT hard-block routing: detection
+    # falls through to auto-detecting the real role column (the fixture has a
+    # 'role' header). This is the robustness fix from the deploy — a bad env
+    # value shouldn't strand real applicants.
     monkeypatch.setenv("FORM_ROLE_COLUMN", "Nonexistent Question")
     s = client.get("/intake/status").json()
     assert s["connected"] is True
-    assert s["role_column_detected"] is False
-    assert s["distinct_roles"] == []
+    assert s["role_column_detected"] is True
+    assert len(s["distinct_roles"]) > 0

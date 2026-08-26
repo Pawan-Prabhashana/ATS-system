@@ -50,13 +50,21 @@ def _normalize_header(s: str) -> str:
     return " ".join(s.split()).lower()
 
 
+# Substrings that mark a role/position question header, for auto-detection when
+# FORM_ROLE_COLUMN isn't set (or is set to something that doesn't match). These
+# are specific enough to a role question to avoid matching Name/CV/Timestamp.
+_ROLE_HEADER_HINTS = ("role", "applying for", "position", "which job", "job you")
+
+
 def detect_role_column(headers: list[str]) -> str | None:
     """Find the role-question header among ``headers``.
 
-    Uses ``FORM_ROLE_COLUMN`` (case-, whitespace- and smart-quote-insensitive)
-    when set; if that env is set but not present in the sheet, returns None (a
-    clear "not detected" so the intake-status endpoint can report it). Otherwise
-    auto-detects the first header containing 'role'.
+    Priority: an exact ``FORM_ROLE_COLUMN`` match (case-, whitespace- and
+    smart-quote-insensitive). If that env is unset OR set to something not
+    present in the sheet, fall back to auto-detecting a header that reads like a
+    role question (see ``_ROLE_HEADER_HINTS``) — so a missing/typo'd env value
+    doesn't silently block routing. Returns None only when nothing looks like a
+    role column (a clear "not detected" for the intake-status endpoint).
     """
     from app.config import get_form_role_column
 
@@ -66,9 +74,10 @@ def detect_role_column(headers: list[str]) -> str | None:
         for h in headers:
             if _normalize_header(h) == target:
                 return h
-        return None
+        # set-but-unmatched: don't hard-fail — try the hints below.
     for h in headers:
-        if "role" in h.strip().lower():
+        nh = _normalize_header(h)
+        if any(hint in nh for hint in _ROLE_HEADER_HINTS):
             return h
     return None
 
