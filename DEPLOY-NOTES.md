@@ -25,6 +25,7 @@ Log in with the `APP_AUTH_USERNAME` / `APP_AUTH_PASSWORD` set on Render.
 ### Render (backend service → Environment)
 | Var | Notes |
 | --- | --- |
+| `INTAKE_MODE` | `google` — **required** to read the real Google Form. If unset it defaults to `local` (the offline fixture CSV) and ignores the sheet. |
 | `STORE_BACKEND` | `postgres` |
 | `DATABASE_URL` | **Supabase Session Pooler** URI (`...pooler.supabase.com:5432`). Secret. If the Supabase DB password is ever reset, update this. |
 | `ANTHROPIC_API_KEY` | Secret. |
