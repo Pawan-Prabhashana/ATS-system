@@ -31,20 +31,40 @@ class RawSubmission(BaseModel):
     raw_row_data: dict[str, Any] = Field(default_factory=dict)
 
 
+def _normalize_header(s: str) -> str:
+    """Normalize a header (or FORM_ROLE_COLUMN) for tolerant matching.
+
+    Google Form question titles routinely carry a trailing space and curly
+    punctuation (e.g. the apostrophe ' U+2019), while a hand-typed / pasted
+    ``FORM_ROLE_COLUMN`` often uses a straight ' and no trailing space. Match on
+    a normalized form so those cosmetic differences don't cause a spurious
+    "role column not detected": unify curly quotes to straight, collapse all
+    whitespace runs, strip, and lowercase.
+    """
+    s = (
+        s.replace("’", "'")  # ' right single quote
+        .replace("‘", "'")  # ' left single quote
+        .replace("“", '"')  # " left double quote
+        .replace("”", '"')  # " right double quote
+    )
+    return " ".join(s.split()).lower()
+
+
 def detect_role_column(headers: list[str]) -> str | None:
     """Find the role-question header among ``headers``.
 
-    Uses ``FORM_ROLE_COLUMN`` (exact, case-insensitive) when set; if that env is
-    set but not present in the sheet, returns None (a clear "not detected" so the
-    intake-status endpoint can report it). Otherwise auto-detects the first
-    header containing 'role'.
+    Uses ``FORM_ROLE_COLUMN`` (case-, whitespace- and smart-quote-insensitive)
+    when set; if that env is set but not present in the sheet, returns None (a
+    clear "not detected" so the intake-status endpoint can report it). Otherwise
+    auto-detects the first header containing 'role'.
     """
     from app.config import get_form_role_column
 
     override = (get_form_role_column() or "").strip()
     if override:
+        target = _normalize_header(override)
         for h in headers:
-            if h.strip().lower() == override.lower():
+            if _normalize_header(h) == target:
                 return h
         return None
     for h in headers:
