@@ -119,7 +119,11 @@ class JSONCandidateStore:
         self._write(records)
 
     def update_decision(
-        self, candidate_id: str, decision: str, note: Optional[str]
+        self,
+        candidate_id: str,
+        decision: str,
+        note: Optional[str],
+        decided_by: Optional[str] = None,
     ) -> CandidateRecord:
         status = _DECISION_STATUS.get(decision)
         if status is None:
@@ -134,17 +138,23 @@ class JSONCandidateStore:
 
         record.candidate.status = status
         if decision == "undecided":
-            # Clean undo — wipe the decision metadata too.
+            # Clean undo — wipe the decision metadata + attribution too.
             record.candidate.reviewer_note = None
             record.candidate.decided_at = None
+            record.candidate.decided_by = None
         else:
             record.candidate.reviewer_note = note
             record.candidate.decided_at = datetime.now(timezone.utc)
+            record.candidate.decided_by = decided_by
         self._write(records)
         return record
 
     def record_assignment_sent(
-        self, candidate_id: str, sent_at: datetime, deadline: date
+        self,
+        candidate_id: str,
+        sent_at: datetime,
+        deadline: date,
+        sent_by: Optional[str] = None,
     ) -> CandidateRecord:
         records = self._load()
         record = records.get(candidate_id)
@@ -155,6 +165,8 @@ class JSONCandidateStore:
         record.candidate.assignment_sent_at = sent_at
         record.candidate.assignment_deadline = deadline
         record.candidate.assignment_sent_count += 1
+        if sent_by:
+            record.candidate.assignment_sent_by = sent_by
         self._write(records)
         return record
 

@@ -88,24 +88,34 @@ class CandidateRepository(Protocol):
         ...
 
     def update_decision(
-        self, candidate_id: str, decision: str, note: Optional[str]
+        self,
+        candidate_id: str,
+        decision: str,
+        note: Optional[str],
+        decided_by: Optional[str] = None,
     ) -> CandidateRecord:
         """Record a human decision + note; return the record.
 
         ``decision`` is ``"shortlist"``, ``"reject"``, or ``"undecided"`` (a
-        clean undo → status ``scored``, note/timestamp cleared); anything else is
-        a ``ValueError``. Missing candidate is a ``KeyError``.
+        clean undo → status ``scored``, note/timestamp/attribution cleared);
+        anything else is a ``ValueError``. ``decided_by`` is the full name of the
+        acting user, recorded for attribution. Missing candidate is a ``KeyError``.
         """
         ...
 
     def record_assignment_sent(
-        self, candidate_id: str, sent_at: "object", deadline: "object"
+        self,
+        candidate_id: str,
+        sent_at: "object",
+        deadline: "object",
+        sent_by: Optional[str] = None,
     ) -> CandidateRecord:
         """Mark an assignment as sent: status -> assignment_sent, set sent_at +
         deadline, increment the send count; return the record.
 
-        ``sent_at`` is a ``datetime``, ``deadline`` a ``date``. Missing candidate
-        is a ``KeyError``.
+        ``sent_at`` is a ``datetime``, ``deadline`` a ``date``. ``sent_by`` is
+        the full name of the acting user (attribution). Missing candidate is a
+        ``KeyError``.
         """
         ...
 

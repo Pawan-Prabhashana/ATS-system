@@ -75,10 +75,15 @@ class Candidate(BaseModel):
     # Human review (Phase 4). Populated by the approval gate; None until decided.
     reviewer_note: Optional[str] = None
     decided_at: Optional[datetime] = None
+    # Who made the shortlist/reject decision (full name of the acting user), for
+    # per-user attribution ("Shortlisted by Abdul"). None until decided/undone.
+    decided_by: Optional[str] = None
     # Assignment dispatch (Phase 5). Set when an assignment email is sent.
     assignment_sent_at: Optional[datetime] = None
     assignment_deadline: Optional[date] = None
     assignment_sent_count: int = 0
+    # Full name of the user who sent the assignment (attribution).
+    assignment_sent_by: Optional[str] = None
 
 
 class PageImage(BaseModel):

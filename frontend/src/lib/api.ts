@@ -55,6 +55,7 @@ function onUnauthorized(): void {
 export interface Me {
   authenticated: boolean;
   username: string | null;
+  full_name: string | null;
   auth_enabled: boolean;
 }
 
@@ -230,9 +231,11 @@ export interface Candidate {
   status: CandidateStatus;
   reviewer_note: string | null;
   decided_at: string | null;
+  decided_by: string | null;
   assignment_sent_at: string | null;
   assignment_deadline: string | null;
   assignment_sent_count: number;
+  assignment_sent_by: string | null;
 }
 
 export interface CriterionScore {
@@ -508,10 +511,11 @@ export function decideCandidate(
 export function sendAssignment(
   id: string,
   force = false,
+  deadline: string | null = null,
 ): Promise<CandidateDetail> {
   if (DEMO_MODE) return demoCall(() => demo.demoSendAssignment(id));
   return request<CandidateDetail>(
     `/candidates/${encodeURIComponent(id)}/send-assignment`,
-    { method: "POST", body: JSON.stringify({ force }) },
+    { method: "POST", body: JSON.stringify({ force, deadline }) },
   );
 }

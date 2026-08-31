@@ -80,6 +80,8 @@ def send_assignment_to_candidate(
     job_repo: JobRepository | None = None,
     sender: EmailSender | None = None,
     expected_job_id: str | None = None,
+    sender_name: str | None = None,
+    deadline_date: date | None = None,
 ) -> SendOutcome:
     """Send the assignment email to one candidate; never raises for the known
     outcomes — returns a :class:`SendOutcome` the caller maps to HTTP or a bulk
@@ -149,21 +151,25 @@ def send_assignment_to_candidate(
         )
 
     job_title = job.title if job else "the role"
-    deadline_days = (
-        job.assignment_deadline_days
-        if job and job.assignment_deadline_days is not None
-        else get_assignment_deadline_days()
-    )
-    deadline = date.today() + timedelta(days=deadline_days)
+    # Prefer an explicit deadline chosen at send time; else fall back to the
+    # per-job "deadline in N days" (or the global default).
+    if deadline_date is not None:
+        deadline = deadline_date
+    else:
+        deadline_days = (
+            job.assignment_deadline_days
+            if job and job.assignment_deadline_days is not None
+            else get_assignment_deadline_days()
+        )
+        deadline = date.today() + timedelta(days=deadline_days)
     sent_at = datetime.now(timezone.utc)
-    message = render_assignment_email(
-        record.candidate,
-        job_title,
-        deadline,
-        brief_path,
-        brief_filename=job.assignment_brief_filename or BRIEF_FILENAME,
-        custom_message=job.assignment_message if job else None,
-    )
+    render_kwargs = {
+        "brief_filename": job.assignment_brief_filename or BRIEF_FILENAME,
+        "custom_message": job.assignment_message if job else None,
+    }
+    if sender_name:
+        render_kwargs["sender_name"] = sender_name
+    message = render_assignment_email(record.candidate, job_title, deadline, brief_path, **render_kwargs)
 
     # Send. Config problems (unset creds) -> config_error; a send failure ->
     # failed, and crucially the status is NOT advanced so the reviewer can retry.
@@ -186,7 +192,7 @@ def send_assignment_to_candidate(
             detail=f"Assignment email failed to send: {result.error}",
         )
 
-    store.record_assignment_sent(candidate_id, sent_at, deadline)
+    store.record_assignment_sent(candidate_id, sent_at, deadline, sent_by=sender_name)
     return SendOutcome(
         candidate_id=candidate_id, success=True, status=SendOutcomeStatus.sent
     )
@@ -200,6 +206,8 @@ def bulk_send_assignments(
     store: CandidateRepository | None = None,
     job_repo: JobRepository | None = None,
     sender: EmailSender | None = None,
+    sender_name: str | None = None,
+    deadline_date: date | None = None,
 ) -> BulkSendResult:
     """Send assignments to many candidates in one job.
 
@@ -234,6 +242,8 @@ def bulk_send_assignments(
             job_repo=job_repo,
             sender=sender,
             expected_job_id=job_id,
+            sender_name=sender_name,
+            deadline_date=deadline_date,
         )
         if outcome.status is SendOutcomeStatus.sent:
             result.sent.append(outcome)

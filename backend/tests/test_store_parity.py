@@ -170,6 +170,23 @@ def test_job_full_fields_roundtrip(jobs):
 # =========================================================================== #
 # PARITY — candidates
 # =========================================================================== #
+def test_decision_and_assignment_record_actor(cand):
+    cand.upsert(_candidate("idA", "hA", "Alice"), None, _evaluation("idA", 70))
+    # Shortlist records who decided it.
+    rec = cand.update_decision("idA", "shortlist", "looks good", decided_by="Abdul Ashraff")
+    assert rec.candidate.decided_by == "Abdul Ashraff"
+    # Assignment send records who sent it.
+    from datetime import date, datetime, timezone
+
+    rec = cand.record_assignment_sent(
+        "idA", datetime.now(timezone.utc), date(2026, 7, 5), sent_by="Mahima Passela"
+    )
+    assert rec.candidate.assignment_sent_by == "Mahima Passela"
+    # Undo clears the decision attribution.
+    rec = cand.update_decision("idA", "undecided", None)
+    assert rec.candidate.decided_by is None
+
+
 def test_upsert_and_get_by_job_and_hash(cand):
     cand.upsert(_candidate("id1", "hashAAA", "Alice"), None, _evaluation("id1", 70))
     found = cand.get_by_job_and_hash("", "hashAAA")

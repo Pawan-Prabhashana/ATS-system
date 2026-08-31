@@ -54,21 +54,41 @@ def test_mock_sender_writes_outbox_file():
     assert data["metadata"]["candidate_id"] == "cand-9"
 
 
-def test_render_assignment_email_has_role_deadline_attachment(tmp_path):
+def test_render_assignment_email_catalist_template(tmp_path):
     cand = Candidate(id="c1", name="Sam", email="sam@example.com", cv_filename="c.pdf", file_hash="h")
     deadline = date(2026, 8, 25)
     brief = tmp_path / "brief.pdf"
     brief.write_bytes(b"%PDF-1.4 fake")
     msg = render_assignment_email(
-        cand, "Backend Engineer", deadline, brief, custom_message="A note from us."
+        cand,
+        "Backend Engineer",
+        deadline,
+        brief,
+        sender_name="Abdul Ashraff",
+        custom_message="A note from us.",
     )
     assert msg.to == "sam@example.com"
     assert "Backend Engineer" in msg.subject
-    assert "Sam" in msg.html_body
-    assert "25 August 2026" in msg.html_body
+    assert "Catalist Media" in msg.subject
+    # Catalist Media assignment wording + ordinal deadline.
+    assert "Thank you for applying to Catalist Media" in msg.html_body
+    assert "25th August 2026" in msg.html_body
+    assert "hello@catalist.media" in msg.html_body
+    assert "+94 774990833" in msg.html_body
     assert "A note from us." in msg.html_body  # custom per-job message
+    # Sender's full name is rendered in the signature (attribution).
+    assert "Abdul Ashraff" in msg.html_body
     assert [a.filename for a in msg.attachments] == ["assignment_brief.pdf"]
     assert msg.metadata["candidate_id"] == "c1"
+
+
+def test_render_assignment_email_default_sender(tmp_path):
+    cand = Candidate(id="c2", name="Jo", email="jo@example.com", cv_filename="c.pdf", file_hash="h")
+    brief = tmp_path / "b.pdf"
+    brief.write_bytes(b"%PDF-1.4")
+    msg = render_assignment_email(cand, "Designer", date(2026, 7, 5), brief)
+    assert "5th July 2026" in msg.html_body  # ordinal formatting
+    assert "The Catalist Media Team" in msg.html_body  # default signature
 
 
 # --------------------------------------------------------------------------- #

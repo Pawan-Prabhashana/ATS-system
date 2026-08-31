@@ -18,6 +18,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     Date,
     DateTime,
     Integer,
@@ -80,9 +81,11 @@ class CandidateRow(Base):
     status: Mapped[str] = mapped_column(String, nullable=False)
     reviewer_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(String, nullable=True)  # attribution
     assignment_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     assignment_deadline: Mapped[date | None] = mapped_column(Date, nullable=True)
     assignment_sent_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    assignment_sent_by: Mapped[str | None] = mapped_column(String, nullable=True)  # attribution
 
     # -- Evaluation (whole Evaluation as one JSON blob) ---------------------- #
     evaluation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -94,3 +97,17 @@ class CandidateRow(Base):
     artifact_dir: Mapped[str | None] = mapped_column(String, nullable=True)
     cv_file: Mapped[str | None] = mapped_column(String, nullable=True)
     page_image_files: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
+
+class UserRow(Base):
+    """A reviewer account. Individual logins let the system attribute each
+    shortlist/reject/assignment to the person who did it. Passwords are stored
+    only as a pbkdf2 hash (see app.users); plaintext never touches the DB."""
+
+    __tablename__ = "users"
+
+    username: Mapped[str] = mapped_column(String, primary_key=True)
+    full_name: Mapped[str] = mapped_column(String, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

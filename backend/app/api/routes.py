@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import io
 import re
+from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
+
+from app.auth import current_user
 from pydantic import BaseModel, ValidationError
 
 from app.config import settings
@@ -522,15 +525,19 @@ class DecisionRequest(BaseModel):
 
 
 @router.patch("/candidates/{candidate_id}/decision", response_model=CandidateDetail)
-def decide_candidate(candidate_id: str, body: DecisionRequest) -> CandidateDetail:
+def decide_candidate(
+    candidate_id: str, body: DecisionRequest, actor: dict = Depends(current_user)
+) -> CandidateDetail:
     """Record a human shortlist/reject decision — the Phase 4 approval gate.
 
-    Nothing downstream fires yet (that's Phase 5); this only persists the human
-    decision (status + note + timestamp).
+    Persists the decision (status + note + timestamp) and WHO made it, so the UI
+    can show "Shortlisted by <name>".
     """
     store = get_candidate_store()
     try:
-        record = store.update_decision(candidate_id, body.decision, body.note)
+        record = store.update_decision(
+            candidate_id, body.decision, body.note, decided_by=actor.get("full_name")
+        )
     except ValueError as exc:  # invalid decision value
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:  # unknown candidate
@@ -546,24 +553,33 @@ def decide_candidate(candidate_id: str, body: DecisionRequest) -> CandidateDetai
 class SendAssignmentRequest(BaseModel):
     # Resend even when already sent (covers "candidate never got it").
     force: bool = False
+    # Submission deadline shown in the email, chosen at send time.
+    deadline: Optional[date] = None
 
 
 @router.post("/candidates/{candidate_id}/send-assignment", response_model=CandidateDetail)
 def send_assignment(
-    candidate_id: str, body: SendAssignmentRequest | None = None
+    candidate_id: str,
+    body: SendAssignmentRequest | None = None,
+    actor: dict = Depends(current_user),
 ) -> CandidateDetail:
     """Send the assignment email to a shortlisted candidate — the gated action.
 
     Guarded so "send" only fires from ``shortlisted`` (or, with ``force``, a
-    re-send from ``assignment_sent``). On send failure the status is left
-    unchanged and a 502 is returned so the reviewer knows to retry.
+    re-send from ``assignment_sent``). The email is signed with the sender's full
+    name and records who sent it. On send failure the status is left unchanged
+    and a 502 is returned so the reviewer knows to retry.
     """
     body = body or SendAssignmentRequest()
 
     # Resolve the sender here (in the routes namespace) and pass it in, so the
     # send flow is centralized in the service while remaining injectable.
     outcome = send_assignment_to_candidate(
-        candidate_id, body.force, sender=get_email_sender()
+        candidate_id,
+        body.force,
+        sender=get_email_sender(),
+        sender_name=actor.get("full_name"),
+        deadline_date=body.deadline,
     )
 
     if outcome.status is SendOutcomeStatus.not_found:
@@ -588,10 +604,16 @@ class BulkSendRequest(BaseModel):
     # None -> all of the job's shortlisted candidates; otherwise exactly these.
     candidate_ids: Optional[list[str]] = None
     force: bool = False
+    # Submission deadline shown in the emails, chosen at send time.
+    deadline: Optional[date] = None
 
 
 @router.post("/jobs/{job_id}/send-assignments", response_model=BulkSendResult)
-def send_assignments(job_id: str, body: BulkSendRequest | None = None) -> BulkSendResult:
+def send_assignments(
+    job_id: str,
+    body: BulkSendRequest | None = None,
+    actor: dict = Depends(current_user),
+) -> BulkSendResult:
     """Bulk-send assignments for a job — Phase 7's "Send to All Shortlisted".
 
     404 if the job is unknown. Zero eligible candidates is a normal result
@@ -603,5 +625,10 @@ def send_assignments(job_id: str, body: BulkSendRequest | None = None) -> BulkSe
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
 
     return bulk_send_assignments(
-        job_id, body.candidate_ids, body.force, sender=get_email_sender()
+        job_id,
+        body.candidate_ids,
+        body.force,
+        sender=get_email_sender(),
+        sender_name=actor.get("full_name"),
+        deadline_date=body.deadline,
     )

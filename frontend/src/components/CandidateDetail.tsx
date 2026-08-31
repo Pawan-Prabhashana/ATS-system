@@ -10,6 +10,7 @@ import {
   mediaUrl,
   openAuthedFile,
   sendAssignment,
+  type Candidate,
   type CandidateDetail as Detail,
   type Decision,
   type Job,
@@ -42,6 +43,8 @@ export function CandidateDetail({
   const [changing, setChanging] = useState(false); // "Change decision" expanded
   const [busy, setBusy] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false); // summary clamped to 3 lines
+  const [sendPrompt, setSendPrompt] = useState<null | { force: boolean }>(null);
+  const [deadline, setDeadline] = useState<string>(defaultDeadline);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -101,7 +104,8 @@ export function CandidateDetail({
     setBusy(true);
     setError(null);
     try {
-      apply(await sendAssignment(candidateId, force));
+      apply(await sendAssignment(candidateId, force, deadline || null));
+      setSendPrompt(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't send the assignment. Try again.");
     } finally {
@@ -120,7 +124,9 @@ export function CandidateDetail({
   // it can be uploaded) rather than firing a request that 409s.
   function requestSend(force: boolean) {
     if (hasBrief) {
-      void send(force);
+      // Open the deadline prompt; the actual send happens on confirm.
+      setDeadline((d) => d || defaultDeadline());
+      setSendPrompt({ force });
     } else if (onOpenSend) {
       onOpenSend();
     } else {
@@ -205,6 +211,9 @@ export function CandidateDetail({
             </div>
           )}
 
+          {/* Attribution — who acted on this candidate */}
+          <Attribution candidate={detail.candidate} />
+
           {/* Review panel — one state, not a permanent question */}
           <div className="rounded-xl border border-line bg-surface p-4">
             {pending !== null ? (
@@ -216,6 +225,15 @@ export function CandidateDetail({
                 onNote={setNote}
                 onConfirm={confirmDecide}
                 onCancel={() => setPending(null)}
+              />
+            ) : sendPrompt !== null ? (
+              <SendConfirm
+                name={detail.candidate.name}
+                deadline={deadline}
+                busy={busy}
+                onDeadline={setDeadline}
+                onConfirm={() => void send(sendPrompt.force)}
+                onCancel={() => setSendPrompt(null)}
               />
             ) : (
               <ReviewState
@@ -450,6 +468,74 @@ function Confirmed({
         {at && <span className="font-mono text-xs text-faint">{formatDateTime(at)}</span>}
       </div>
       {note && <p className="mt-1.5 text-sm text-muted">“{note}”</p>}
+    </div>
+  );
+}
+
+function defaultDeadline(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 7);
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD for <input type="date">
+}
+
+function firstName(full: string): string {
+  return full.trim().split(/\s+/)[0] || full;
+}
+
+/** Who acted on this candidate — shown by first name ("Shortlisted by Abdul"). */
+function Attribution({ candidate: c }: { candidate: Candidate }) {
+  const items: string[] = [];
+  if (c.decided_by && (c.status === "shortlisted" || c.status === "rejected" || c.status === "assignment_sent")) {
+    const verb = c.status === "rejected" ? "Rejected" : "Shortlisted";
+    items.push(`${verb} by ${firstName(c.decided_by)}`);
+  }
+  if (c.assignment_sent_by && c.status === "assignment_sent") {
+    items.push(`Assignment sent by ${firstName(c.assignment_sent_by)}`);
+  }
+  if (items.length === 0) return null;
+  return (
+    <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-faint">
+      {items.map((t) => (
+        <span key={t}>{t}</span>
+      ))}
+    </div>
+  );
+}
+
+/** Confirm sending an assignment, choosing the submission deadline. */
+function SendConfirm({
+  name,
+  deadline,
+  busy,
+  onDeadline,
+  onConfirm,
+  onCancel,
+}: {
+  name: string | null;
+  deadline: string;
+  busy: boolean;
+  onDeadline: (v: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-sm text-muted">Send the assignment to {name ?? "this candidate"}?</p>
+      <label className="mb-1 block text-xs text-faint">Submission deadline</label>
+      <input
+        type="date"
+        value={deadline}
+        onChange={(e) => onDeadline(e.target.value)}
+        className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm"
+      />
+      <div className="mt-2 flex gap-2">
+        <Button size="sm" loading={busy} disabled={!deadline} onClick={onConfirm}>
+          Send assignment
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
     </div>
   );
 }

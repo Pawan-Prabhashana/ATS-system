@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.config import (
@@ -51,11 +51,13 @@ class LoginResponse(BaseModel):
     token: str
     expires_at: datetime
     username: str
+    full_name: Optional[str] = None
 
 
 class MeResponse(BaseModel):
     authenticated: bool
     username: Optional[str] = None
+    full_name: Optional[str] = None
     auth_enabled: bool = True
 
 
@@ -73,12 +75,15 @@ def _require_secret() -> str:
     return secret
 
 
-def create_access_token(username: str) -> tuple[str, datetime]:
+def create_access_token(username: str, full_name: Optional[str] = None) -> tuple[str, datetime]:
     secret = _require_secret()
     now = datetime.now(timezone.utc)
     expires = now + timedelta(hours=get_auth_token_ttl_hours())
     payload = {
         "sub": username,
+        # Full display name, carried in the token so attribution ("Shortlisted by
+        # Abdul") and the assignment email's signature need no DB lookup per call.
+        "name": full_name or username,
         "type": _TOKEN_TYPE,
         "iat": int(now.timestamp()),
         "exp": int(expires.timestamp()),
@@ -92,7 +97,19 @@ def decode_token(token: str) -> dict:
     return jwt.decode(token, _require_secret(), algorithms=[JWT_ALGORITHM])
 
 
-def verify_credentials(username: str, password: str) -> bool:
+def authenticate(username: str, password: str) -> Optional[dict]:
+    """Return ``{"username", "full_name"}`` for valid credentials, else None.
+
+    Checks the individual reviewer accounts first (multi-user, DB-backed on
+    Postgres); falls back to the single env admin account (APP_AUTH_USERNAME /
+    APP_AUTH_PASSWORD) so local dev and the break-glass admin keep working.
+    """
+    from app.users import get_user, verify_password
+
+    user = get_user(username)
+    if user is not None and user.active and verify_password(password, user.password_hash):
+        return {"username": user.username, "full_name": user.full_name}
+
     expected_user = get_app_auth_username()
     expected_pass = get_app_auth_password()
     if not expected_pass:
@@ -100,7 +117,14 @@ def verify_credentials(username: str, password: str) -> bool:
     # Constant-time compare on both fields (avoid short-circuit timing leaks).
     user_ok = hmac.compare_digest(username or "", expected_user or "")
     pass_ok = hmac.compare_digest(password or "", expected_pass or "")
-    return user_ok and pass_ok
+    if user_ok and pass_ok:
+        return {"username": expected_user, "full_name": expected_user}
+    return None
+
+
+def verify_credentials(username: str, password: str) -> bool:
+    """Back-compat boolean wrapper around :func:`authenticate`."""
+    return authenticate(username, password) is not None
 
 
 def _bearer_token(request: Request) -> Optional[str]:
@@ -121,7 +145,8 @@ def require_auth(request: Request) -> dict:
     A missing server secret is the one 500 (a deployment error, not a client one).
     """
     if not get_auth_enabled():
-        return {"sub": get_app_auth_username(), "auth_disabled": True}
+        name = get_app_auth_username()
+        return {"sub": name, "name": name, "auth_disabled": True}
 
     token = _bearer_token(request)
     if not token:
@@ -144,6 +169,17 @@ def require_auth(request: Request) -> dict:
         )
 
 
+def current_user(payload: dict = Depends(require_auth)) -> dict:
+    """Acting user for the request: ``{"username", "full_name"}``.
+
+    Depends on ``require_auth`` (so the same token check — and any test override —
+    applies), then projects the principal. Used by action routes to attribute
+    shortlist/reject/assignment to a person.
+    """
+    username = payload.get("sub") or ""
+    return {"username": username, "full_name": payload.get("name") or username}
+
+
 # --------------------------------------------------------------------------- #
 # Routes — mounted WITHOUT the auth dependency (login must be reachable)
 # --------------------------------------------------------------------------- #
@@ -153,16 +189,21 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/login", response_model=LoginResponse)
 def login(body: LoginRequest) -> LoginResponse:
     try:
-        ok = verify_credentials(body.username, body.password)
+        principal = authenticate(body.username, body.password)
     except AuthConfigError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    if not ok:
+    if principal is None:
         raise HTTPException(status_code=401, detail="Incorrect username or password.")
     try:
-        token, expires = create_access_token(body.username)
+        token, expires = create_access_token(principal["username"], principal["full_name"])
     except AuthConfigError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    return LoginResponse(token=token, expires_at=expires, username=body.username)
+    return LoginResponse(
+        token=token,
+        expires_at=expires,
+        username=principal["username"],
+        full_name=principal["full_name"],
+    )
 
 
 @router.post("/logout")
@@ -175,7 +216,8 @@ def logout() -> dict:
 def me(request: Request) -> MeResponse:
     """Report whether the current session is valid. Never 401s — it's a probe."""
     if not get_auth_enabled():
-        return MeResponse(authenticated=True, username=get_app_auth_username(), auth_enabled=False)
+        name = get_app_auth_username()
+        return MeResponse(authenticated=True, username=name, full_name=name, auth_enabled=False)
     token = _bearer_token(request)
     if not token:
         return MeResponse(authenticated=False, auth_enabled=True)
@@ -183,4 +225,9 @@ def me(request: Request) -> MeResponse:
         payload = decode_token(token)
     except Exception:
         return MeResponse(authenticated=False, auth_enabled=True)
-    return MeResponse(authenticated=True, username=payload.get("sub"), auth_enabled=True)
+    return MeResponse(
+        authenticated=True,
+        username=payload.get("sub"),
+        full_name=payload.get("name") or payload.get("sub"),
+        auth_enabled=True,
+    )

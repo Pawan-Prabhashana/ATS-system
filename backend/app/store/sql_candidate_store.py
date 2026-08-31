@@ -51,9 +51,11 @@ def _to_candidate(row: CandidateRow) -> Candidate:
         status=row.status,
         reviewer_note=row.reviewer_note,
         decided_at=_as_utc(row.decided_at),
+        decided_by=row.decided_by,
         assignment_sent_at=_as_utc(row.assignment_sent_at),
         assignment_deadline=row.assignment_deadline,
         assignment_sent_count=row.assignment_sent_count,
+        assignment_sent_by=row.assignment_sent_by,
     )
 
 
@@ -86,8 +88,10 @@ def _apply_candidate(row: CandidateRow, candidate: Candidate) -> None:
     row.status = _enum_value(candidate.status)
     row.reviewer_note = candidate.reviewer_note
     row.decided_at = candidate.decided_at
+    row.decided_by = candidate.decided_by
     row.assignment_sent_at = candidate.assignment_sent_at
     row.assignment_deadline = candidate.assignment_deadline
+    row.assignment_sent_by = candidate.assignment_sent_by
     row.assignment_sent_count = candidate.assignment_sent_count
 
 
@@ -199,7 +203,11 @@ class SQLCandidateStore:
             row.status = _enum_value(status)
 
     def update_decision(
-        self, candidate_id: str, decision: str, note: Optional[str]
+        self,
+        candidate_id: str,
+        decision: str,
+        note: Optional[str],
+        decided_by: Optional[str] = None,
     ) -> CandidateRecord:
         # Validate the decision BEFORE touching the DB — same order as JSON
         # (an invalid decision is a ValueError even if the candidate is missing).
@@ -215,16 +223,22 @@ class SQLCandidateStore:
                 raise KeyError(f"No candidate with id {candidate_id!r}")
             row.status = status.value
             if decision == "undecided":
-                # Clean undo — wipe the decision metadata too.
+                # Clean undo — wipe the decision metadata + attribution too.
                 row.reviewer_note = None
                 row.decided_at = None
+                row.decided_by = None
             else:
                 row.reviewer_note = note
                 row.decided_at = datetime.now(timezone.utc)
+                row.decided_by = decided_by
             return _to_record(row)
 
     def record_assignment_sent(
-        self, candidate_id: str, sent_at: datetime, deadline: date
+        self,
+        candidate_id: str,
+        sent_at: datetime,
+        deadline: date,
+        sent_by: Optional[str] = None,
     ) -> CandidateRecord:
         with self._scope() as s:
             row = s.get(CandidateRow, candidate_id)
@@ -234,4 +248,6 @@ class SQLCandidateStore:
             row.assignment_sent_at = sent_at
             row.assignment_deadline = deadline
             row.assignment_sent_count = (row.assignment_sent_count or 0) + 1
+            if sent_by:
+                row.assignment_sent_by = sent_by
             return _to_record(row)
