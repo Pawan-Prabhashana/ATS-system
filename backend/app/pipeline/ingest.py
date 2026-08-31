@@ -5,7 +5,7 @@ import hashlib
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from pydantic import BaseModel, Field
 
@@ -167,6 +167,7 @@ def run_site_ingestion(
     store: CandidateRepository | None = None,
     evaluator: Evaluator | None = None,
     work_dir: str | Path | None = None,
+    on_progress: "Callable[[int, int], None] | None" = None,
 ) -> SiteIngestionSummary:
     """Pull ALL new rows from the single site form and route each to the job
     whose ``role_key`` matches the row's ``role`` EXACTLY (never a fuzzy/AI
@@ -182,6 +183,10 @@ def run_site_ingestion(
     by_role = {j.role_key: j for j in jobs if j.role_key}
     summary = SiteIngestionSummary()
     submissions = intake_source.fetch_new_submissions()
+    total = len(submissions)
+    done = 0
+    if on_progress:
+        on_progress(0, total)
 
     tmp_ctx = None
     if work_dir is None:
@@ -197,6 +202,9 @@ def run_site_ingestion(
                 key = role or "(no role selected)"
                 summary.held_by_role[key] = summary.held_by_role.get(key, 0) + 1
                 summary.held_total += 1
+                done += 1
+                if on_progress:
+                    on_progress(done, total)
                 continue
             try:
                 outcome, cid = _ingest_one(
@@ -218,6 +226,9 @@ def run_site_ingestion(
                         reason=f"{type(exc).__name__}: {exc}",
                     )
                 )
+                done += 1
+                if on_progress:
+                    on_progress(done, total)
                 continue
             if outcome == "skipped":
                 summary.skipped_duplicate += 1
@@ -225,6 +236,9 @@ def run_site_ingestion(
                 summary.processed += 1
                 summary.processed_by_job[job.id] = summary.processed_by_job.get(job.id, 0) + 1
                 summary.processed_candidate_ids.append(cid)
+            done += 1
+            if on_progress:
+                on_progress(done, total)
     finally:
         if tmp_ctx is not None:
             tmp_ctx.cleanup()

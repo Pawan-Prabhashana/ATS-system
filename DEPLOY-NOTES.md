@@ -74,6 +74,13 @@ Both services auto-deploy from GitHub `main` (`Pawan-Prabhashana/ATS-system`):
 1. **Email sending is OFF (but ready).** `EMAIL_MODE=mock` — the assignment email (Catalist Media template, chosen deadline, sender's name) is fully built and "sends" are simulated + attributed, but nothing actually goes out. The current form now HAS an email column, so to send for real: set `EMAIL_MODE=resend` with a verified Resend domain (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`).
 2. **Render Free sleeps.** After ~15 min idle the backend sleeps; the next request takes ~30–60s (cold start). **Warm it** (hit the URL / log in) a minute before showing anyone.
 
+## Pulling, rescoring & auto-pull
+
+- **Pull runs in the background with live progress.** "Pull applicants" starts a background job and the UI polls `GET /ingest/progress` to show "X of Y scored", so long pulls (hundreds of CVs) don't time out and the user sees it working. A pull is idempotent (dedup), so if it's interrupted, just pull again to finish the rest.
+- **Rescore.** Change a job's rubric/description, then **Rescore** one candidate (candidate panel) or **Rescore all** (job page, background + progress). Rescoring replaces only the evaluation; status and human decisions are kept.
+- **Auto-pull on job setup.** Creating a job kicks off a background pull automatically (when `INTAKE_MODE=google`), so applicants for that role start scoring without a manual pull.
+- **Render Free caveat.** Background work only runs while the web instance is awake (it stays awake while actively pulling/being polled). The Free instance sleeps after ~15 min idle, so **continuous/scheduled auto-pull while nobody is using the app is not possible on Free** — it happens on job setup and on demand. For periodic auto-pull, upgrade to a paid Render tier (a cron/worker) or hit `POST /ingest/start` from an external scheduler.
+
 ## Database note
 
 The Postgres schema was brought current on first deploy (a clean-slate: `jobs` + `candidates` recreated with the current schema, then the 2 canonical jobs seeded — Backend Engineer, Graphic Design Intern; 0 candidates). Future schema changes are additive; the app runs `create_all` on startup (creates missing tables only — it does not add columns to existing tables).

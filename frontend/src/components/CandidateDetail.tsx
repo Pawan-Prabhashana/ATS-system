@@ -9,6 +9,7 @@ import {
   getJob,
   mediaUrl,
   openAuthedFile,
+  rescoreCandidate,
   sendAssignment,
   type CandidateDetail as Detail,
   type Decision,
@@ -44,6 +45,7 @@ export function CandidateDetail({
   const [summaryOpen, setSummaryOpen] = useState(false); // summary clamped to 3 lines
   const [sendPrompt, setSendPrompt] = useState<null | { force: boolean }>(null);
   const [deadline, setDeadline] = useState<string>(defaultDeadline);
+  const [rescoring, setRescoring] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -109,6 +111,18 @@ export function CandidateDetail({
       setError(e instanceof Error ? e.message : "Couldn't send the assignment. Try again.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function rescore() {
+    setRescoring(true);
+    setError(null);
+    try {
+      apply(await rescoreCandidate(candidateId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't rescore. Try again.");
+    } finally {
+      setRescoring(false);
     }
   }
 
@@ -206,7 +220,17 @@ export function CandidateDetail({
                   {summaryOpen ? "Show less" : "Show more"}
                 </button>
               )}
-              <p className="mt-1.5 font-mono text-xs text-faint">{detail.evaluation.evaluated_by}</p>
+              <div className="mt-1.5 flex items-center gap-3">
+                <p className="font-mono text-xs text-faint">{detail.evaluation.evaluated_by}</p>
+                <button
+                  type="button"
+                  onClick={() => void rescore()}
+                  disabled={rescoring}
+                  className="text-xs text-[var(--accent-ink)] hover:underline disabled:opacity-50"
+                >
+                  {rescoring ? "Rescoring…" : "Rescore"}
+                </button>
+              </div>
             </div>
           )}
 

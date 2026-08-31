@@ -450,6 +450,44 @@ export function siteIngest(): Promise<SiteIngestionSummary> {
   return request<SiteIngestionSummary>("/ingest", { method: "POST" });
 }
 
+/** Progress of a background pull/rescore job. */
+export interface TaskProgress {
+  status: "idle" | "running" | "done" | "error";
+  kind?: string;
+  total?: number;
+  processed?: number;
+  error?: string | null;
+  summary?: SiteIngestionSummary | { total: number; rescored: number; failed: number } | null;
+}
+
+/** Start a background pull (non-blocking). Poll getIngestProgress for "X of Y". */
+export function startIngest(): Promise<TaskProgress> {
+  if (DEMO_MODE) return demoCall(() => ({ status: "done", summary: demo.demoSiteIngest() }) as TaskProgress);
+  return request<TaskProgress>("/ingest/start", { method: "POST" });
+}
+
+export function getIngestProgress(): Promise<TaskProgress> {
+  if (DEMO_MODE) return demoCall(() => ({ status: "idle" }) as TaskProgress);
+  return request<TaskProgress>("/ingest/progress");
+}
+
+/** Re-score one candidate against its job's current rubric. */
+export function rescoreCandidate(id: string): Promise<CandidateDetail> {
+  if (DEMO_MODE) return demoCall(() => demo.demoGetCandidate(id));
+  return request<CandidateDetail>(`/candidates/${encodeURIComponent(id)}/rescore`, { method: "POST" });
+}
+
+/** Start a background re-score of every candidate in a job. */
+export function startJobRescore(jobId: string): Promise<TaskProgress> {
+  if (DEMO_MODE) return demoCall(() => ({ status: "done" }) as TaskProgress);
+  return request<TaskProgress>(`/jobs/${encodeURIComponent(jobId)}/rescore/start`, { method: "POST" });
+}
+
+export function getJobRescoreProgress(jobId: string): Promise<TaskProgress> {
+  if (DEMO_MODE) return demoCall(() => ({ status: "idle" }) as TaskProgress);
+  return request<TaskProgress>(`/jobs/${encodeURIComponent(jobId)}/rescore/progress`);
+}
+
 /** Every role on the form + whether a job serves it (powers "needs setup"). */
 export function listRoles(): Promise<RoleInfo[]> {
   if (DEMO_MODE) return demoCall(() => demo.demoListRoles());

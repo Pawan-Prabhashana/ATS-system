@@ -5,11 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   DEMO_MODE,
+  getIngestProgress,
   getIntakeStatus,
   getJobSummary,
   listJobs,
   listRoles,
-  siteIngest,
+  startIngest,
   type IntakeStatus,
   type Job,
   type JobSummary,
@@ -30,6 +31,7 @@ export default function JobsOverview() {
   const [pulling, setPulling] = useState(false);
   const [pullResult, setPullResult] = useState<SiteIngestionSummary | null>(null);
   const [pullError, setPullError] = useState<string | null>(null);
+  const [pullProgress, setPullProgress] = useState<{ processed: number; total: number } | null>(null);
 
   const loadSummary = useCallback(async (id: string) => {
     try {
@@ -62,13 +64,28 @@ export default function JobsOverview() {
     setPulling(true);
     setPullError(null);
     setPullResult(null);
+    setPullProgress(null);
     try {
-      setPullResult(await siteIngest());
+      // Start a background pull, then poll for live "X of Y" progress. This
+      // avoids the request timing out on hundreds of applicants and shows the
+      // user it's working (not stuck). Safe if one is already running.
+      let snap = await startIngest();
+      while (snap.status === "running") {
+        setPullProgress({ processed: snap.processed ?? 0, total: snap.total ?? 0 });
+        await new Promise((r) => setTimeout(r, 2000));
+        snap = await getIngestProgress();
+      }
+      if (snap.status === "error") {
+        setPullError(snap.error || "Pull failed. Try again.");
+      } else if (snap.summary) {
+        setPullResult(snap.summary as SiteIngestionSummary);
+      }
       await load();
     } catch (e) {
       setPullError(e instanceof Error ? e.message : "Couldn't pull applicants.");
     } finally {
       setPulling(false);
+      setPullProgress(null);
     }
   }
 
@@ -97,7 +114,12 @@ export default function JobsOverview() {
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" onClick={onPull} loading={pulling}>
-            <IconPull /> Pull applicants
+            {!pulling && <IconPull />}{" "}
+            {pulling
+              ? pullProgress && pullProgress.total
+                ? `Pulling ${pullProgress.processed} of ${pullProgress.total}…`
+                : "Starting…"
+              : "Pull applicants"}
           </Button>
           <Link href="/jobs/new">
             <Button size="sm" variant="secondary">
@@ -106,6 +128,13 @@ export default function JobsOverview() {
           </Link>
         </div>
       </div>
+
+      {pulling && (
+        <p className="mt-3 text-xs text-muted">
+          Pulling &amp; scoring applicants — this can take a few minutes for a large form.
+          It runs in the background, so you can keep working; the count updates as each is scored.
+        </p>
+      )}
 
       {/* Overview strip */}
       {hasJobs && (

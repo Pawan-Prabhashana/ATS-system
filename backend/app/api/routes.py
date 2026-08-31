@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from app.auth import current_user
 from pydantic import BaseModel, ValidationError
 
-from app.config import settings
+from app.config import get_intake_mode, settings
 from app.email.factory import get_email_sender
 from app.evaluation.errors import EvaluatorConfigError
 from app.intake.errors import IntakeError
@@ -32,6 +32,13 @@ from app.pipeline import (
     SiteIngestionSummary,
     run_site_ingestion,
 )
+from app.pipeline.background import (
+    ingestion_progress,
+    rescore_progress,
+    start_job_rescore,
+    start_site_ingestion,
+)
+from app.pipeline.rescore import rescore_candidate
 from app.pipeline.assignment import (
     BRIEF_FILENAME,
     BulkSendResult,
@@ -150,7 +157,17 @@ def create_job(body: JobCreateRequest) -> Job:
         rubric=rubric,
         status=body.status or JobStatus.open,
     )
-    return repo.add(job)
+    created = repo.add(job)
+    # Auto-pull: as soon as a role is set up, start pulling + scoring its
+    # applicants in the background so they're ready without a manual pull. Only
+    # when the live Google intake is configured; best-effort (never blocks or
+    # fails job creation). Poll GET /ingest/progress to watch it.
+    if get_intake_mode() == "google":
+        try:
+            start_site_ingestion()
+        except Exception:  # noqa: BLE001 - job creation must still succeed
+            pass
+    return created
 
 
 @router.get("/jobs/{job_id}", response_model=Job)
@@ -217,6 +234,23 @@ def site_ingest() -> SiteIngestionSummary:
         raise HTTPException(
             status_code=502, detail=f"Couldn't read the application form: {exc}"
         ) from exc
+
+
+@router.post("/ingest/start")
+def site_ingest_start() -> dict:
+    """Start a BACKGROUND pull (non-blocking) and return its progress snapshot.
+
+    Pulling hundreds of applicants can take minutes — far longer than an HTTP
+    request should hold. This kicks the pull onto a background thread; poll
+    ``GET /ingest/progress`` for the live "X of Y" count. Safe to call while one
+    is running (returns the in-flight snapshot; never starts a duplicate)."""
+    return start_site_ingestion()
+
+
+@router.get("/ingest/progress")
+def site_ingest_progress() -> dict:
+    """Live progress of the background pull: status, processed, total, summary."""
+    return ingestion_progress()
 
 
 class RoleInfo(BaseModel):
@@ -545,6 +579,39 @@ def decide_candidate(
             status_code=404, detail=f"Candidate {candidate_id!r} not found."
         ) from exc
     return _to_detail(record)
+
+
+# --------------------------------------------------------------------------- #
+# Re-scoring (when a job's rubric/description changes)
+# --------------------------------------------------------------------------- #
+@router.post("/candidates/{candidate_id}/rescore", response_model=CandidateDetail)
+def rescore_one(candidate_id: str) -> CandidateDetail:
+    """Re-score one candidate against its job's CURRENT rubric (fast, synchronous).
+    Keeps status + human decision; replaces only the evaluation."""
+    try:
+        rescore_candidate(candidate_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except EvaluatorConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    record = get_candidate_store().get(candidate_id)
+    return _to_detail(record)
+
+
+@router.post("/jobs/{job_id}/rescore/start")
+def rescore_job_start(job_id: str) -> dict:
+    """Start a BACKGROUND re-score of every candidate in a job; poll
+    ``GET /jobs/{job_id}/rescore/progress`` for the live count."""
+    if get_job_repository().get(job_id) is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
+    return start_job_rescore(job_id)
+
+
+@router.get("/jobs/{job_id}/rescore/progress")
+def rescore_job_progress(job_id: str) -> dict:
+    return rescore_progress(job_id)
 
 
 # --------------------------------------------------------------------------- #

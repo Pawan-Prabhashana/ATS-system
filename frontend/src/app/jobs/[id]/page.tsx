@@ -4,10 +4,13 @@ import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   DEMO_MODE,
+  getIngestProgress,
   getJob,
+  getJobRescoreProgress,
   getJobSummary,
   listJobCandidates,
-  siteIngest,
+  startIngest,
+  startJobRescore,
   type CandidateRecord,
   type Job,
   type JobSummary,
@@ -47,6 +50,9 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
   const [sendOpen, setSendOpen] = useState(false);
   const [ingesting, setIngesting] = useState(false);
   const [ingestResult, setIngestResult] = useState<SiteIngestionSummary | null>(null);
+  const [progress, setProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [rescoring, setRescoring] = useState(false);
+  const [rescoreProgress, setRescoreProgress] = useState<{ processed: number; total: number } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -94,14 +100,43 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
     setIngesting(true);
     setError(null);
     setIngestResult(null);
+    setProgress(null);
     try {
-      const res = await siteIngest();
-      setIngestResult(res);
+      let snap = await startIngest();
+      while (snap.status === "running") {
+        setProgress({ processed: snap.processed ?? 0, total: snap.total ?? 0 });
+        await new Promise((r) => setTimeout(r, 2000));
+        snap = await getIngestProgress();
+      }
+      if (snap.status === "error") setError(snap.error || "Pull failed. Try again.");
+      else if (snap.summary) setIngestResult(snap.summary as SiteIngestionSummary);
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't pull applicants.");
     } finally {
       setIngesting(false);
+      setProgress(null);
+    }
+  }
+
+  async function onRescoreAll() {
+    setRescoring(true);
+    setError(null);
+    setRescoreProgress(null);
+    try {
+      let snap = await startJobRescore(id);
+      while (snap.status === "running") {
+        setRescoreProgress({ processed: snap.processed ?? 0, total: snap.total ?? 0 });
+        await new Promise((r) => setTimeout(r, 2000));
+        snap = await getJobRescoreProgress(id);
+      }
+      if (snap.status === "error") setError(snap.error || "Rescore failed. Try again.");
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't rescore candidates.");
+    } finally {
+      setRescoring(false);
+      setRescoreProgress(null);
     }
   }
 
@@ -176,10 +211,26 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
                 <Stat label="Shortlisted" value={summary.by_status.shortlisted} />
                 <Stat label="Sent" value={summary.by_status.assignment_sent} />
               </div>
-              <div className="mt-3 border-t border-line pt-3">
+              <div className="mt-3 space-y-2 border-t border-line pt-3">
                 <Button size="sm" variant="secondary" loading={ingesting} onClick={onIngest} className="w-full">
-                  Pull applicants
+                  {ingesting
+                    ? progress && progress.total
+                      ? `Pulling ${progress.processed} of ${progress.total}…`
+                      : "Starting…"
+                    : "Pull applicants"}
                 </Button>
+                <Button size="sm" variant="ghost" loading={rescoring} onClick={onRescoreAll} className="w-full">
+                  {rescoring
+                    ? rescoreProgress && rescoreProgress.total
+                      ? `Rescoring ${rescoreProgress.processed} of ${rescoreProgress.total}…`
+                      : "Starting…"
+                    : "Rescore all"}
+                </Button>
+                {(ingesting || rescoring) && (
+                  <p className="text-[11px] leading-snug text-muted">
+                    Runs in the background — this can take a few minutes for many applicants. You can keep working.
+                  </p>
+                )}
               </div>
             </Card>
           </div>
@@ -231,7 +282,11 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
             <p className="mt-1 text-sm text-muted">Pull applicants to fetch and score everyone who picked this role on the form.</p>
             <div className="mt-4">
               <Button size="sm" loading={ingesting} onClick={onIngest}>
-                Pull applicants
+                {ingesting
+                  ? progress && progress.total
+                    ? `Pulling ${progress.processed} of ${progress.total}…`
+                    : "Starting…"
+                  : "Pull applicants"}
               </Button>
             </div>
           </Card>
