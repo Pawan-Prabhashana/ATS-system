@@ -86,6 +86,18 @@ class Candidate(BaseModel):
     assignment_sent_by: Optional[str] = None
 
 
+class ChatMessage(BaseModel):
+    """One team-chat message. ``id`` is a monotonic sequence for cursor polling;
+    ``full_name`` is stored so the history shows real names even if an account is
+    later renamed."""
+
+    id: int
+    username: str
+    full_name: str
+    body: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class PageImage(BaseModel):
     page_number: int = Field(..., ge=1, description="1-based page index.")
     image_path: str = Field(..., description="Filesystem path to the rendered PNG.")

@@ -524,6 +524,26 @@ export function getJobRescoreProgress(jobId: string): Promise<TaskProgress> {
   return request<TaskProgress>(`/jobs/${encodeURIComponent(jobId)}/rescore/progress`);
 }
 
+// -- Team chat --------------------------------------------------------------
+export interface ChatMessage {
+  id: number;
+  username: string;
+  full_name: string;
+  body: string;
+  created_at: string;
+}
+
+/** Chat history; pass `after` (last seen id) to poll for newer messages only. */
+export function listChatMessages(after = 0): Promise<ChatMessage[]> {
+  if (DEMO_MODE) return demoCall(() => [] as ChatMessage[]);
+  return request<ChatMessage[]>(`/chat/messages${after > 0 ? `?after=${after}` : ""}`);
+}
+
+export function postChatMessage(body: string): Promise<ChatMessage> {
+  if (DEMO_MODE) throw new Error("Chat is disabled in the demo build.");
+  return request<ChatMessage>("/chat/messages", { method: "POST", body: JSON.stringify({ body }) });
+}
+
 /** Every role on the form + whether a job serves it (powers "needs setup"). */
 export function listRoles(): Promise<RoleInfo[]> {
   if (DEMO_MODE) return demoCall(() => demo.demoListRoles());

@@ -53,8 +53,9 @@ function AccountFooter() {
     window.location.href = "/login";
   }
 
-  const name = me?.username ?? "Account";
-  const initial = (name.trim()[0] ?? "A").toUpperCase();
+  const name = me?.full_name ?? me?.username ?? "Account";
+  const parts = name.trim().split(/\s+/);
+  const initial = ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "A";
 
   return (
     <div className="border-t border-line p-3">
@@ -149,6 +150,14 @@ function NavContent({
         icon={<IconPlus />}
       >
         New job
+      </NavItem>
+      <NavItem
+        href="/chat"
+        active={pathname === "/chat"}
+        onNavigate={onNavigate}
+        icon={<IconChat />}
+      >
+        Team chat
       </NavItem>
 
       {jobId && (
@@ -266,6 +275,13 @@ function IconPlus() {
   return (
     <svg viewBox="0 0 16 16" className="h-4 w-4" {...S}>
       <path d="M8 3.5v9M3.5 8h9" />
+    </svg>
+  );
+}
+function IconChat() {
+  return (
+    <svg viewBox="0 0 16 16" className="h-4 w-4" {...S}>
+      <path d="M2.5 4.5A1.5 1.5 0 0 1 4 3h8a1.5 1.5 0 0 1 1.5 1.5v5A1.5 1.5 0 0 1 12 11H6.5L4 13.2V11h-.5A1.5 1.5 0 0 1 2.5 9.5z" />
     </svg>
   );
 }

@@ -1,6 +1,7 @@
 """Pydantic models for the recruitment-screening pipeline."""
 from app.models.schemas import (
     Candidate,
+    ChatMessage,
     CandidateStatus,
     CriterionScore,
     Evaluation,
@@ -17,6 +18,7 @@ from app.models.schemas import (
 
 __all__ = [
     "Candidate",
+    "ChatMessage",
     "CandidateStatus",
     "CriterionScore",
     "Evaluation",

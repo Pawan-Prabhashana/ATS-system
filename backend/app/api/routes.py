@@ -20,6 +20,7 @@ from app.intake.factory import get_intake_source
 from app.models import (
     Candidate,
     CandidateStatus,
+    ChatMessage,
     Evaluation,
     Job,
     JobStatus,
@@ -49,6 +50,7 @@ from app.pipeline.assignment import (
     send_assignment_to_candidate,
 )
 from app.store import CandidateRecord
+from app.store.chat_store import get_chat_store
 from app.store.factory import get_candidate_store, get_job_repository
 
 router = APIRouter()
@@ -732,3 +734,29 @@ def send_assignments(
         sender_name=actor.get("full_name"),
         deadline_date=body.deadline,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Team chat
+# --------------------------------------------------------------------------- #
+class ChatPostRequest(BaseModel):
+    body: str
+
+
+@router.get("/chat/messages", response_model=list[ChatMessage])
+def chat_messages(after: int = 0, limit: int = 200) -> list[ChatMessage]:
+    """Chat history (oldest→newest). ``after`` polls for messages newer than that
+    id (the poll cursor); without it, returns the most recent ``limit``."""
+    store = get_chat_store()
+    if after > 0:
+        return store.list_since(after, limit=500)
+    return store.recent(limit=min(max(limit, 1), 500))
+
+
+@router.post("/chat/messages", response_model=ChatMessage, status_code=201)
+def chat_post(body: ChatPostRequest, actor: dict = Depends(current_user)) -> ChatMessage:
+    """Post a message as the current user (author name is recorded server-side)."""
+    text = (body.body or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Message can't be empty.")
+    return get_chat_store().add(actor["username"], actor["full_name"], text[:4000])

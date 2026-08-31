@@ -83,4 +83,6 @@ Both services auto-deploy from GitHub `main` (`Pawan-Prabhashana/ATS-system`):
 
 ## Database note
 
+**Team chat** persists to a `chat_messages` table (created automatically by `create_all` on boot — new *tables* are created, so no manual migration). The `/chat` page polls for new messages every 3s and shows full names.
+
 The Postgres schema was brought current on first deploy (a clean-slate: `jobs` + `candidates` recreated with the current schema, then the 2 canonical jobs seeded — Backend Engineer, Graphic Design Intern; 0 candidates). Future schema changes are additive; the app runs `create_all` on startup (creates missing tables only — it does not add columns to existing tables).
