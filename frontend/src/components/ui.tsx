@@ -5,15 +5,16 @@ type Size = "sm" | "md";
 
 const VARIANT: Record<Variant, string> = {
   primary:
-    "bg-accent text-white shadow-[var(--shadow-sm)] hover:brightness-95 hover:shadow-[var(--shadow-md)] disabled:opacity-40 disabled:shadow-none",
-  secondary: "bg-surface text-ink border border-line-2 hover:bg-surface-2 disabled:opacity-40",
+    "text-white border border-white/10 [background-image:var(--accent-grad)] shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-glow)] hover:brightness-[1.06] disabled:opacity-40 disabled:shadow-none",
+  secondary:
+    "bg-surface/80 text-ink border border-line-2 shadow-[var(--shadow-sm)] hover:bg-surface hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line-2))] disabled:opacity-40",
   ghost: "bg-transparent text-muted hover:bg-surface-2 hover:text-ink disabled:opacity-40",
   danger:
     "bg-transparent text-[var(--tier-reject)] border border-[color-mix(in_srgb,var(--tier-reject)_40%,transparent)] hover:bg-[var(--tier-reject-tint)] disabled:opacity-40",
 };
 const SIZE: Record<Size, string> = {
-  sm: "h-8 px-3 text-[13px] gap-1.5 rounded-lg",
-  md: "h-9 px-4 text-sm gap-2 rounded-lg",
+  sm: "h-8 px-3.5 text-[13px] gap-1.5 rounded-xl",
+  md: "h-10 px-5 text-sm gap-2 rounded-xl",
 };
 
 export function Button({
@@ -32,7 +33,7 @@ export function Button({
   return (
     <button
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center font-medium tracking-tight transition duration-150 ease-out active:translate-y-px disabled:cursor-not-allowed disabled:active:translate-y-0 ${VARIANT[variant]} ${SIZE[size]} ${className}`}
+      className={`inline-flex items-center justify-center font-medium tracking-tight transition-[transform,box-shadow,filter,background-color,border-color] duration-150 ease-out active:translate-y-px active:scale-[0.985] disabled:cursor-not-allowed disabled:active:translate-y-0 disabled:active:scale-100 ${VARIANT[variant]} ${SIZE[size]} ${className}`}
       {...rest}
     >
       {loading && <Spinner className="-ml-0.5" />}
@@ -62,11 +63,11 @@ export function Card({
   children: ReactNode;
 } & React.HTMLAttributes<HTMLDivElement>) {
   const lift = elevated
-    ? "transition-[box-shadow,transform,border-color] duration-200 ease-out hover:-translate-y-0.5 hover:border-line-2 hover:shadow-[var(--shadow-md)]"
+    ? "transition-[box-shadow,transform,border-color] duration-200 ease-out hover:-translate-y-1 hover:border-[color-mix(in_srgb,var(--accent)_35%,var(--line))] hover:shadow-[var(--shadow-lg)]"
     : "";
   return (
     <div
-      className={`rounded-xl border border-line bg-surface shadow-[var(--shadow-sm)] ${lift} ${className}`}
+      className={`rounded-2xl border border-line bg-surface/90 shadow-[var(--shadow-md)] ${lift} ${className}`}
       {...rest}
     >
       {children}
@@ -90,18 +91,26 @@ export function StatTile({
   tone?: string; // a CSS color for the value + icon (defaults to ink)
   className?: string;
 }) {
+  const accent = tone ?? "var(--accent)";
   return (
-    <div className={`rounded-xl border border-line bg-surface p-3.5 shadow-[var(--shadow-sm)] ${className}`}>
-      <div className="flex items-center gap-1.5 text-faint">
+    <div className="group relative overflow-hidden rounded-2xl border border-line bg-surface/90 p-4 shadow-[var(--shadow-md)] transition-transform duration-200 ease-out hover:-translate-y-0.5">
+      <div
+        className="pointer-events-none absolute -right-6 -top-8 h-20 w-20 rounded-full opacity-[0.10] blur-xl transition-opacity duration-300 group-hover:opacity-20"
+        style={{ background: accent }}
+      />
+      <div className="flex items-center gap-2">
         {icon && (
-          <span className="grid h-3.5 w-3.5 place-items-center" style={tone ? { color: tone } : undefined}>
-            {icon}
+          <span
+            className="grid h-6 w-6 place-items-center rounded-lg text-white"
+            style={{ background: `color-mix(in srgb, ${accent} 88%, transparent)` }}
+          >
+            <span className="h-3.5 w-3.5">{icon}</span>
           </span>
         )}
-        <span className="truncate text-[10px] font-medium uppercase tracking-[0.06em]">{label}</span>
+        <span className="truncate text-[10px] font-semibold uppercase tracking-[0.07em] text-faint">{label}</span>
       </div>
       <div
-        className="mt-1 font-mono text-[22px] font-semibold leading-none tabular-nums"
+        className="mt-2 font-display text-[26px] font-semibold leading-none tabular-nums"
         style={tone ? { color: tone } : undefined}
       >
         {value}
@@ -164,7 +173,7 @@ export function Checkbox({
 
 // -- form controls ----------------------------------------------------------
 const CONTROL =
-  "w-full rounded-lg border border-line-2 bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-[var(--accent-tint)]";
+  "w-full rounded-xl border border-line-2 bg-surface/80 px-3.5 py-2.5 text-sm text-ink placeholder:text-faint transition-colors focus:border-accent focus:outline-none focus:ring-4 focus:ring-[var(--accent-tint)]";
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${CONTROL} ${props.className ?? ""}`} />;

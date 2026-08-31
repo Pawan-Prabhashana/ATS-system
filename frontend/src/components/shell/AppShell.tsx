@@ -15,11 +15,11 @@ function deriveJobId(pathname: string): string | null {
 
 function Brand() {
   return (
-    <Link href="/" className="flex items-center gap-2 px-2">
-      <span className="block overflow-hidden rounded-[7px] ring-1 ring-line-2">
-        <Image src="/Catalist-logo.jpeg" alt="Catalist" width={26} height={26} className="block h-[26px] w-[26px]" />
+    <Link href="/" className="flex items-center gap-2.5 px-1">
+      <span className="block overflow-hidden rounded-[9px] shadow-[var(--shadow-md)] ring-1 ring-black/5">
+        <Image src="/Catalist-logo.jpeg" alt="Catalist" width={30} height={30} className="block h-[30px] w-[30px]" />
       </span>
-      <span className="font-display text-[15px] font-medium tracking-tight">Catalist</span>
+      <span className="font-display text-[16px] font-semibold tracking-tight">Catalist</span>
       {DEMO_MODE && (
         <span
           className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em]"
@@ -60,7 +60,7 @@ function AccountFooter() {
   return (
     <div className="border-t border-line p-3">
       <div className="flex items-center gap-2.5">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-surface-2 font-mono text-xs font-semibold text-muted">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-xs font-semibold text-white shadow-[var(--shadow-sm)] [background-image:var(--accent-grad)]">
           {initial}
         </span>
         <div className="min-w-0 flex-1">
@@ -101,13 +101,16 @@ function NavItem({
       href={href}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
-      className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+      className={`group relative flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm transition-all duration-150 ${
         active
-          ? "bg-[var(--accent-tint)] font-medium text-[var(--accent-ink)]"
+          ? "bg-[var(--accent-tint)] font-semibold text-[var(--accent-ink)] shadow-[var(--shadow-sm)]"
           : "text-muted hover:bg-surface-2 hover:text-ink"
       }`}
     >
-      <span className="grid h-4 w-4 shrink-0 place-items-center text-current">{icon}</span>
+      {active && (
+        <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full [background-image:var(--accent-grad)]" />
+      )}
+      <span className={`grid h-4 w-4 shrink-0 place-items-center transition-colors ${active ? "text-[var(--accent-ink)]" : "text-faint group-hover:text-ink"}`}>{icon}</span>
       <span className="truncate">{children}</span>
     </Link>
   );
@@ -211,8 +214,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="md:flex md:min-h-dvh">
       {/* Desktop rail */}
-      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-line bg-surface md:flex">
-        <div className="flex h-14 items-center border-b border-line px-3">
+      <aside className="glass sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-line md:flex">
+        <div className="flex h-16 items-center border-b border-line px-4">
           <Brand />
         </div>
         <nav className="thin-scroll flex-1 overflow-y-auto p-3">
@@ -222,7 +225,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Mobile top bar */}
-      <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-line bg-[var(--surface)]/90 px-4 backdrop-blur md:hidden">
+      <header className="glass sticky top-0 z-40 flex h-14 items-center justify-between border-b border-line px-4 md:hidden">
         <Brand />
         <button
           onClick={() => setOpen(true)}

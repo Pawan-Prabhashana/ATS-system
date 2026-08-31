@@ -51,7 +51,7 @@ export default function LoginPage() {
             <Image src="/Catalist-logo.jpeg" alt="Catalist" width={72} height={72} priority className="block h-[72px] w-[72px]" />
           </div>
           <div className="mt-5 flex items-center gap-2">
-            <h1 className="font-display text-2xl font-medium tracking-tight">Catalist</h1>
+            <h1 className="grad-text font-display text-3xl font-semibold tracking-tight">Catalist</h1>
             {DEMO_MODE && (
               <span
                 className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em]"
@@ -68,7 +68,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-line bg-surface p-6 shadow-[0_10px_40px_-16px_rgba(20,27,43,0.28)]">
+        <div className="glass rounded-3xl border border-[var(--glass-border)] p-7 shadow-[var(--shadow-lg)]">
           <form onSubmit={onSubmit} className="space-y-4">
             {!DEMO_MODE && (
               <label className="block">
@@ -79,7 +79,7 @@ export default function LoginPage() {
                   autoFocus
                   autoComplete="username"
                   required
-                  className="w-full rounded-lg border border-line-2 bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-[var(--accent-tint)]"
+                  className="w-full rounded-xl border border-line-2 bg-surface/80 px-3.5 py-2.5 text-sm text-ink placeholder:text-faint transition-colors focus:border-accent focus:outline-none focus:ring-4 focus:ring-[var(--accent-tint)]"
                   placeholder="admin"
                 />
               </label>
@@ -96,7 +96,7 @@ export default function LoginPage() {
                 autoFocus={DEMO_MODE}
                 autoComplete="current-password"
                 required
-                className="w-full rounded-lg border border-line-2 bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-[var(--accent-tint)]"
+                className="w-full rounded-xl border border-line-2 bg-surface/80 px-3.5 py-2.5 text-sm text-ink placeholder:text-faint transition-colors focus:border-accent focus:outline-none focus:ring-4 focus:ring-[var(--accent-tint)]"
                 placeholder="••••••••"
               />
             </label>

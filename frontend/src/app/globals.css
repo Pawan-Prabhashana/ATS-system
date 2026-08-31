@@ -1,74 +1,86 @@
 @import "tailwindcss";
 
-/* Catalist — "control surface". Cool slate workspace; the two-axis signal
-   (AI tier vs human decision) lives in DISTINCT colour families. See
-   DESIGN_NOTES.md. */
+/* Catalist — premium "indigo glass" control surface.
+   Token-driven so the whole app restyles from here. Light + dark are both
+   first-class (follows the viewer's system setting). Accent is an indigo→violet
+   gradient; surfaces are soft and glassy with layered, tinted depth. */
 :root {
-  --bg: #eef2f6;          /* cool paper (blue-gray) */
+  --bg: #f4f5fb;              /* soft cool paper */
+  --bg-2: #eceefb;           /* gradient companion */
   --surface: #ffffff;
-  --surface-2: #e7ecf2;   /* inset / hover / track ground */
-  --ink: #141b2b;         /* blue-black text */
-  --muted: #64748b;       /* secondary text */
-  --faint: #94a3b8;       /* tertiary / undecided ring */
-  --line: #dce3ec;        /* hairline */
-  --line-2: #c7d0dc;      /* stronger border */
-  --accent: #2e56e6;      /* signal blue */
-  --accent-ink: #1c3aad;  /* accent text on light */
-  --accent-tint: #e7edfd;
+  --surface-2: #f1f3fb;      /* inset / hover / track */
+  --ink: #0e1020;            /* near-black, faint indigo */
+  --muted: #5b6379;          /* secondary text */
+  --faint: #9aa1b6;          /* tertiary */
+  --line: #e8eaf4;           /* hairline */
+  --line-2: #d7dbeb;         /* stronger border */
 
-  /* AI recommendation (tier) — a signal set */
-  --tier-shortlist: #1c8b5a;
-  --tier-shortlist-tint: #e5f3ec;
-  --tier-borderline: #b3781f;
-  --tier-borderline-tint: #f7efe0;
-  --tier-reject: #ce4257;
-  --tier-reject-tint: #fbe9ec;
+  --accent: #6366f1;         /* indigo-500 */
+  --accent-2: #8b5cf6;       /* violet-500 (gradient end) */
+  --accent-ink: #4f46e5;     /* accent text on light */
+  --accent-tint: #eef0fe;    /* soft accent wash */
+  --accent-grad: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
 
-  /* Human decision (status) — a cool action set (distinct family) */
-  --dec-shortlisted: #2e56e6;
-  --dec-rejected: #3a4557;
-  --dec-sent: #6d4ae0;
+  /* AI recommendation (tier) */
+  --tier-shortlist: #0f9d6f;
+  --tier-shortlist-tint: #e7f7f0;
+  --tier-borderline: #c07d12;
+  --tier-borderline-tint: #fbf1de;
+  --tier-reject: #e23d5b;
+  --tier-reject-tint: #fdebef;
 
-  /* Elevation — soft, cool-tinted shadows (Phase 12 polish). Layered surfaces
-     read as an instrument with depth, never skeuomorphic. */
+  /* Human decision (status) — distinct cool family */
+  --dec-shortlisted: #6366f1;
+  --dec-rejected: #64708a;
+  --dec-sent: #8b5cf6;
+
+  /* Glass + elevation */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.65);
   --surface-raised: #ffffff;
-  --shadow-sm: 0 1px 2px -1px rgba(20, 27, 43, 0.10), 0 1px 3px rgba(20, 27, 43, 0.06);
-  --shadow-md: 0 4px 12px -4px rgba(20, 27, 43, 0.12), 0 2px 6px -2px rgba(20, 27, 43, 0.07);
-  --shadow-lg: 0 16px 40px -16px rgba(20, 27, 43, 0.24), 0 6px 16px -8px rgba(20, 27, 43, 0.12);
+  --shadow-sm: 0 1px 2px rgba(16, 18, 40, 0.04), 0 1px 3px rgba(16, 18, 40, 0.06);
+  --shadow-md: 0 6px 18px -6px rgba(16, 18, 40, 0.12), 0 2px 8px -2px rgba(16, 18, 40, 0.07);
+  --shadow-lg: 0 28px 56px -24px rgba(16, 18, 40, 0.30), 0 10px 28px -14px rgba(16, 18, 40, 0.16);
+  --shadow-glow: 0 8px 26px -8px rgba(99, 102, 241, 0.5);
   --ring-accent: 0 0 0 3px var(--accent-tint);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f141c;
-    --surface: #171e28;
-    --surface-2: #1f2836;
-    --ink: #e8edf4;
-    --muted: #93a1b4;
-    --faint: #5c6b80;
-    --line: #26303f;
-    --line-2: #33404f;
-    --accent: #6d8bff;
-    --accent-ink: #adc0ff;
-    --accent-tint: #17203a;
+    --bg: #080a12;
+    --bg-2: #0d1020;
+    --surface: #12151f;
+    --surface-2: #1a1e2b;
+    --ink: #eef0f7;
+    --muted: #9aa3ba;
+    --faint: #646d84;
+    --line: #222738;
+    --line-2: #313a4e;
 
-    --tier-shortlist: #45c78d;
-    --tier-shortlist-tint: #10241a;
-    --tier-borderline: #d9a441;
-    --tier-borderline-tint: #241d10;
-    --tier-reject: #ec6b7d;
-    --tier-reject-tint: #271217;
+    --accent: #818cf8;
+    --accent-2: #a78bfa;
+    --accent-ink: #a5b4fc;
+    --accent-tint: rgba(129, 140, 248, 0.15);
+    --accent-grad: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
 
-    --dec-shortlisted: #6d8bff;
-    --dec-rejected: #93a1b4;
-    --dec-sent: #a68bff;
+    --tier-shortlist: #34d399;
+    --tier-shortlist-tint: rgba(52, 211, 153, 0.13);
+    --tier-borderline: #fbbf24;
+    --tier-borderline-tint: rgba(251, 191, 36, 0.12);
+    --tier-reject: #fb7185;
+    --tier-reject-tint: rgba(251, 113, 133, 0.13);
 
-    /* Dark elevation: raised surfaces lighten (light comes from above) and
-       shadows deepen for separation on the near-black canvas. */
-    --surface-raised: #1c2431;
-    --shadow-sm: 0 1px 2px -1px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.35);
-    --shadow-md: 0 6px 16px -6px rgba(0, 0, 0, 0.6), 0 2px 6px -2px rgba(0, 0, 0, 0.4);
-    --shadow-lg: 0 20px 48px -18px rgba(0, 0, 0, 0.72), 0 8px 20px -10px rgba(0, 0, 0, 0.5);
+    --dec-shortlisted: #818cf8;
+    --dec-rejected: #9aa3ba;
+    --dec-sent: #a78bfa;
+
+    --glass-bg: rgba(18, 21, 31, 0.66);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --surface-raised: #1a1e2b;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.35);
+    --shadow-md: 0 8px 22px -8px rgba(0, 0, 0, 0.66), 0 2px 8px -2px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 32px 60px -24px rgba(0, 0, 0, 0.78), 0 12px 28px -14px rgba(0, 0, 0, 0.55);
+    --shadow-glow: 0 8px 30px -8px rgba(129, 140, 248, 0.55);
     --ring-accent: 0 0 0 3px var(--accent-tint);
   }
 }
@@ -83,6 +95,7 @@
   --color-line: var(--line);
   --color-line-2: var(--line-2);
   --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
   --color-accent-ink: var(--accent-ink);
   --font-sans: var(--font-inter);
   --font-display: var(--font-space-grotesk);
@@ -95,25 +108,69 @@ html {
 }
 
 body {
-  background: var(--bg);
   color: var(--ink);
   font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  background:
+    radial-gradient(1100px 620px at 12% -8%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%),
+    radial-gradient(900px 520px at 105% 4%, color-mix(in srgb, var(--accent-2) 11%, transparent), transparent 55%),
+    linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 42%);
+  background-attachment: fixed;
+  min-height: 100dvh;
 }
 
-/* Space Grotesk stays display-only — never on body copy. */
 .font-display {
   font-family: var(--font-space-grotesk), var(--font-inter), sans-serif;
+  letter-spacing: -0.01em;
+}
+
+/* Frosted glass surface (sidebar, sticky bars, overlays). */
+.glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: saturate(160%) blur(16px);
+  backdrop-filter: saturate(160%) blur(16px);
+}
+
+/* Gradient text for hero/marks. */
+.grad-text {
+  background: var(--accent-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Accent gradient fill (buttons, chips, marks). */
+.grad-accent {
+  background: var(--accent-grad);
 }
 
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .thin-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--line-2) transparent;
+}
+.thin-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: 999px;
+}
+.thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-in {
+  animation: fade-in-up 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
