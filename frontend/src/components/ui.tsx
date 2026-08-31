@@ -93,24 +93,20 @@ export function StatTile({
 }) {
   const accent = tone ?? "var(--accent)";
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-line bg-surface/90 p-4 shadow-[var(--shadow-md)] transition-transform duration-200 ease-out hover:-translate-y-0.5">
-      <div
-        className="pointer-events-none absolute -right-6 -top-8 h-20 w-20 rounded-full opacity-[0.10] blur-xl transition-opacity duration-300 group-hover:opacity-20"
-        style={{ background: accent }}
-      />
-      <div className="flex items-center gap-2">
+    <div className={`rounded-2xl border border-line bg-surface p-4 shadow-[var(--shadow-md)] transition-transform duration-200 ease-out hover:-translate-y-0.5 ${className}`}>
+      <div className="flex items-center gap-2.5">
         {icon && (
           <span
-            className="grid h-6 w-6 place-items-center rounded-lg text-white"
-            style={{ background: `color-mix(in srgb, ${accent} 88%, transparent)` }}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-white [&>svg]:h-4 [&>svg]:w-4"
+            style={{ background: accent }}
           >
-            <span className="h-3.5 w-3.5">{icon}</span>
+            {icon}
           </span>
         )}
         <span className="truncate text-[10px] font-semibold uppercase tracking-[0.07em] text-faint">{label}</span>
       </div>
       <div
-        className="mt-2 font-display text-[26px] font-semibold leading-none tabular-nums"
+        className="mt-2.5 font-display text-[26px] font-semibold leading-none tabular-nums"
         style={tone ? { color: tone } : undefined}
       >
         {value}

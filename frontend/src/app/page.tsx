@@ -25,6 +25,7 @@ export default function JobsOverview() {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [summaries, setSummaries] = useState<Record<string, JobSummary>>({});
   const [roles, setRoles] = useState<RoleInfo[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
   const [status, setStatus] = useState<IntakeStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,7 +49,11 @@ export default function JobsOverview() {
       const js = await listJobs();
       setJobs(js);
       js.forEach((j) => void loadSummary(j.id));
-      listRoles().then(setRoles).catch(() => setRoles([]));
+      setRolesLoading(true);
+      listRoles()
+        .then(setRoles)
+        .catch(() => setRoles([]))
+        .finally(() => setRolesLoading(false));
       getIntakeStatus().then(setStatus).catch(() => setStatus(null));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load jobs. Is the backend running?");
@@ -159,20 +164,30 @@ export default function JobsOverview() {
       {pullResult && <PullSummary result={pullResult} onDismiss={() => setPullResult(null)} />}
 
       {/* Roles from the application form */}
-      {roles.length > 0 && (
+      {(rolesLoading || roles.length > 0) && (
         <section className="mt-8">
           <div className="flex items-baseline gap-2">
             <h2 className="font-display text-base font-medium">Roles from the application form</h2>
-            {needsSetup.length > 0 && (
-              <span className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ background: "var(--tier-borderline-tint)", color: "var(--tier-borderline)" }}>
-                {needsSetup.length} need{needsSetup.length === 1 ? "s" : ""} setup
+            {rolesLoading ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-faint">
+                <Spinner className="h-3 w-3" /> reading the form…
               </span>
+            ) : (
+              needsSetup.length > 0 && (
+                <span className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ background: "var(--tier-borderline-tint)", color: "var(--tier-borderline)" }}>
+                  {needsSetup.length} need{needsSetup.length === 1 ? "s" : ""} setup
+                </span>
+              )
             )}
           </div>
           <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-            {roles.map((r) => (
-              <RoleCard key={r.role} role={r} onSetup={() => router.push(`/jobs/new?role=${encodeURIComponent(r.role)}`)} onOpen={(id) => router.push(`/jobs/${id}`)} />
-            ))}
+            {rolesLoading
+              ? Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="h-[68px] animate-pulse rounded-2xl border border-line bg-surface-2/60" />
+                ))
+              : roles.map((r) => (
+                  <RoleCard key={r.role} role={r} onSetup={() => router.push(`/jobs/new?role=${encodeURIComponent(r.role)}`)} onOpen={(id) => router.push(`/jobs/${id}`)} />
+                ))}
           </div>
         </section>
       )}

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,32 @@ _EMAIL_KEYS = ("email", "e-mail", "email address")
 _CV_KEYS = ("cv", "resume", "résumé", "upload", "file")
 _TIME_KEYS = ("timestamp", "time", "date")
 _PORTFOLIO_KEYS = ("portfolio", "work sample")
+
+# Short-TTL cache for the raw sheet read. The dashboard reads the whole sheet
+# twice per load (/roles + /intake/status) and on every reload; without this
+# each is a full round-trip to Google over hundreds of rows, so the "Roles from
+# the application form" strip appears only after a slow fetch. 30s is short
+# enough that a manual Pull still sees essentially-current data (and dedup makes
+# a re-pull safe if a just-submitted row is briefly missed).
+_VALUES_CACHE: dict[tuple[str, str], tuple[float, list]] = {}
+_VALUES_TTL_S = 30.0
+
+
+def _read_sheet_values(sheets, sheet_id: str, sheet_range: str) -> list:
+    key = (sheet_id, sheet_range)
+    now = time.time()
+    hit = _VALUES_CACHE.get(key)
+    if hit and now - hit[0] < _VALUES_TTL_S:
+        return hit[1]
+    rows = (
+        sheets.spreadsheets()
+        .values()
+        .get(spreadsheetId=sheet_id, range=sheet_range)
+        .execute()
+        .get("values", [])
+    )
+    _VALUES_CACHE[key] = (now, rows)
+    return rows
 
 
 class GoogleFormsIntakeSource:
@@ -82,16 +109,10 @@ class GoogleFormsIntakeSource:
         sheets, _drive = self._build_clients()
 
         try:
-            resp = (
-                sheets.spreadsheets()
-                .values()
-                .get(spreadsheetId=sheet_id, range=self.sheet_range)
-                .execute()
-            )
+            rows = _read_sheet_values(sheets, sheet_id, self.sheet_range)
         except Exception as exc:  # noqa: BLE001 - surface as config/usage error
             raise IntakeConfigError(f"Failed to read Google Sheet {sheet_id}: {exc}") from exc
 
-        rows = resp.get("values", [])
         if not rows:
             return []
 
@@ -138,12 +159,7 @@ class GoogleFormsIntakeSource:
             }
         try:
             sheets, _drive = self._build_clients()
-            resp = (
-                sheets.spreadsheets()
-                .values()
-                .get(spreadsheetId=sheet_id, range=self.sheet_range)
-                .execute()
-            )
+            rows = _read_sheet_values(sheets, sheet_id, self.sheet_range)
         except Exception as exc:  # noqa: BLE001 - report, never raise to a 500
             return {
                 "connected": False,
@@ -154,7 +170,6 @@ class GoogleFormsIntakeSource:
                 "error": str(exc),
             }
 
-        rows = resp.get("values", [])
         if not rows:
             return {
                 "connected": True,

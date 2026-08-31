@@ -42,6 +42,17 @@ def _isolate_data_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _clear_intake_cache():
+    """The Google intake caches raw sheet reads (30s TTL) for dashboard speed.
+    Clear it per test so one test's stubbed rows don't leak into the next."""
+    from app.intake import google_forms
+
+    google_forms._VALUES_CACHE.clear()
+    yield
+    google_forms._VALUES_CACHE.clear()
+
+
+@pytest.fixture(autouse=True)
 def _default_cv_mode_render(monkeypatch):
     """Pin CV_MODE=render for the offline suite.
 
