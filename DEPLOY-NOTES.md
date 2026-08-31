@@ -33,9 +33,10 @@ Log in with the `APP_AUTH_USERNAME` / `APP_AUTH_PASSWORD` set on Render.
 | `CV_MODE` | `pdf_direct` |
 | `EMAIL_MODE` | `mock` (email sending OFF — see limits) |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Raw service-account JSON, one line. Secret. |
-| `GOOGLE_SHEET_ID` | The single responses sheet id. |
-| `FORM_ROLE_COLUMN` | `Job you're applying for` — the role question header (now matched tolerantly: case/whitespace/smart-quote-insensitive). |
-| `APP_AUTH_USERNAME` / `APP_AUTH_PASSWORD` | Login creds. Password is secret. |
+| `GOOGLE_SHEET_ID` | Responses spreadsheet id — current: `14IW96F-0ve9suM-b8jTH76aPcNSN_wb3Gm9nAHVC12s`. |
+| `GOOGLE_SHEET_TAB` | `August 2025` — the worksheet/tab to read (the spreadsheet has one tab per hiring round). Unset = first tab. |
+| `FORM_ROLE_COLUMN` | Optional. The role question header; matching is tolerant (case/whitespace/smart-quotes) and auto-detects "…applying for…" even if unset/wrong. |
+| `APP_AUTH_USERNAME` / `APP_AUTH_PASSWORD` | Break-glass admin login (single account). Individual reviewer accounts live in the DB (see below). Password is secret. |
 | `AUTH_SECRET_KEY` | Random 32-byte hex (`openssl rand -hex 32`). Secret. |
 | `AUTH_ENABLED` | `true` |
 | `FRONTEND_ORIGIN` | `https://ats-system-lilac.vercel.app` (exact origin, no trailing slash) — CORS allowlist. |
@@ -47,6 +48,19 @@ Log in with the `APP_AUTH_USERNAME` / `APP_AUTH_PASSWORD` set on Render.
 | `NEXT_PUBLIC_AUTH_ENABLED` | `true` |
 | `NEXT_PUBLIC_DEMO_MODE` | **Must NOT be set** (or `false`). If `true`, the frontend serves a static demo snapshot and ignores the backend. |
 
+## Reviewer accounts (individual logins)
+
+Each reviewer has their own DB-backed login so the system attributes every
+shortlist / reject / assignment to a person ("Shortlisted by Abdul"; full name
+in the assignment email signature). Accounts: **mahima** (Mahima Passela),
+**abdul** (Abdul Ashraff), **nidarshi** (Nidarshi Sivapadam), **pawan** (Pawan
+Prabhashana). Passwords are stored hashed (pbkdf2); the plaintext was generated
+once at provisioning and distributed out-of-band.
+
+- Provision or reset: `STORE_BACKEND=postgres DATABASE_URL=<pooler> python -m scripts.provision_users` (prints new passwords once).
+- The `APP_AUTH_USERNAME`/`APP_AUTH_PASSWORD` env admin still works as a fallback.
+- Logins are concurrent-safe (stateless JWT; the token carries the display name).
+
 ## How to redeploy
 
 Both services auto-deploy from GitHub `main` (`Pawan-Prabhashana/ATS-system`):
@@ -57,7 +71,7 @@ Both services auto-deploy from GitHub `main` (`Pawan-Prabhashana/ATS-system`):
 
 ## Known limits (relay to the team)
 
-1. **Email is OFF.** `EMAIL_MODE=mock` — no emails are actually sent, and the form has no email column yet. Shortlist/assignment "sends" are simulated only.
+1. **Email sending is OFF (but ready).** `EMAIL_MODE=mock` — the assignment email (Catalist Media template, chosen deadline, sender's name) is fully built and "sends" are simulated + attributed, but nothing actually goes out. The current form now HAS an email column, so to send for real: set `EMAIL_MODE=resend` with a verified Resend domain (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`).
 2. **Render Free sleeps.** After ~15 min idle the backend sleeps; the next request takes ~30–60s (cold start). **Warm it** (hit the URL / log in) a minute before showing anyone.
 
 ## Database note
