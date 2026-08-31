@@ -319,6 +319,69 @@ def _ingest_one(
     return ("processed", scoped_id)
 
 
+def add_candidate_from_upload(
+    *,
+    job: Job,
+    cv_bytes: bytes,
+    cv_filename: str,
+    name: Optional[str] = None,
+    email: Optional[str] = None,
+    portfolio_url: Optional[str] = None,
+    store: CandidateRepository | None = None,
+    evaluator: Evaluator | None = None,
+) -> tuple[str, str]:
+    """Manually add + score ONE candidate from an uploaded CV (no form).
+
+    Mirrors ``_ingest_one`` but the CV comes from an upload, so it's persisted
+    locally (no Drive origin). Returns ``("skipped", existing_id)`` if this CV is
+    already under the job (per-(job, hash) dedup), else ``("processed", id)``.
+    Raises ``ValueError`` for a non-PDF/corrupt file.
+    """
+    store = store or get_candidate_store()
+    evaluator = evaluator or get_evaluator()
+    _require_pdf_direct_supported(evaluator)
+    pdf_direct = get_cv_mode() == "pdf_direct"
+
+    with tempfile.TemporaryDirectory(prefix="catalist-manual-") as tmp:
+        work_dir = Path(tmp)
+        src = work_dir / (cv_filename or "cv.pdf")
+        src.write_bytes(cv_bytes)
+        # Parse (raises ValueError on non-PDF); pdf_direct skips the poppler render.
+        candidate, parsed_cv = parse_cv_file(src, output_root=work_dir, render_images=not pdf_direct)
+
+        file_hash = candidate.file_hash
+        scoped_id = _scoped_candidate_id(job.id, file_hash)
+        existing = store.get_by_job_and_hash(job.id, file_hash)
+        if existing is not None:
+            return ("skipped", existing.id)
+
+        artifact_dir, cv_file, page_files = _persist_artifacts(scoped_id, src, parsed_cv)
+        candidate = candidate.model_copy(
+            update={
+                "id": scoped_id,
+                "name": (name or candidate.name),
+                "email": email,
+                "job_id": job.id,
+                "cv_drive_file_id": None,  # uploaded -> served from the local PDF
+                "portfolio_url": portfolio_url,
+                "status": CandidateStatus.parsed,
+            }
+        )
+        parsed_cv = parsed_cv.model_copy(update={"candidate_id": scoped_id})
+        pdf_bytes = cv_bytes if pdf_direct else None
+        evaluation = evaluator.evaluate(parsed_cv, job.job_description, job.rubric, pdf_bytes=pdf_bytes)
+        candidate = candidate.model_copy(update={"status": CandidateStatus.scored})
+        store.upsert(
+            candidate,
+            parsed_cv,
+            evaluation,
+            artifact_dir=artifact_dir,
+            cv_file=cv_file,
+            page_image_files=page_files,
+        )
+        return ("processed", scoped_id)
+
+
 def _process_one(
     submission: RawSubmission,
     *,

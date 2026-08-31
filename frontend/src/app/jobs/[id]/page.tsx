@@ -22,6 +22,7 @@ import { Button, Card, Label, Spinner } from "@/components/ui";
 import { SlideOver } from "@/components/SlideOver";
 import { CandidateDetail } from "@/components/CandidateDetail";
 import { SendAssignments } from "@/components/SendAssignments";
+import { AddCandidate } from "@/components/AddCandidate";
 import { initials } from "@/lib/format";
 
 type Tab = "all" | "shortlist" | "borderline" | "reject";
@@ -48,6 +49,7 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
   const [tab, setTab] = useState<Tab>("all");
   const [openId, setOpenId] = useState<string | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [ingesting, setIngesting] = useState(false);
   const [ingestResult, setIngestResult] = useState<SiteIngestionSummary | null>(null);
   const [progress, setProgress] = useState<{ processed: number; total: number } | null>(null);
@@ -226,6 +228,9 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
                       : "Starting…"
                     : "Rescore all"}
                 </Button>
+                <Button size="sm" variant="ghost" onClick={() => setAddOpen(true)} className="w-full">
+                  Add candidate
+                </Button>
                 {(ingesting || rescoring) && (
                   <p className="text-[11px] leading-snug text-muted">
                     Runs in the background — this can take a few minutes for many applicants. You can keep working.
@@ -319,6 +324,20 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
 
       <SlideOver open={sendOpen} onClose={() => setSendOpen(false)}>
         {sendOpen && <SendAssignments jobId={id} onClose={() => setSendOpen(false)} onChanged={() => void refresh()} />}
+      </SlideOver>
+
+      <SlideOver open={addOpen} onClose={() => setAddOpen(false)}>
+        {addOpen && (
+          <AddCandidate
+            jobId={id}
+            onClose={() => setAddOpen(false)}
+            onAdded={(cid) => {
+              setAddOpen(false);
+              void refresh();
+              setOpenId(cid);
+            }}
+          />
+        )}
       </SlideOver>
     </div>
   );

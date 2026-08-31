@@ -431,6 +431,42 @@ export async function uploadBrief(id: string, file: File): Promise<Job> {
   return (await res.json()) as Job;
 }
 
+/** Manually add a candidate to a job by uploading their CV (PDF) + optional
+ *  name/email/portfolio. Parsed + scored server-side; returns the new detail. */
+export async function addCandidate(
+  jobId: string,
+  file: File,
+  meta: { name?: string; email?: string; portfolio_url?: string } = {},
+): Promise<CandidateDetail> {
+  if (DEMO_MODE) throw new Error("Adding candidates is disabled in the demo build.");
+  const fd = new FormData();
+  fd.append("file", file);
+  if (meta.name) fd.append("name", meta.name);
+  if (meta.email) fd.append("email", meta.email);
+  if (meta.portfolio_url) fd.append("portfolio_url", meta.portfolio_url);
+  const res = await fetch(`${API_BASE}/jobs/${encodeURIComponent(jobId)}/candidates`, {
+    method: "POST",
+    body: fd,
+    headers: authHeaders(),
+    cache: "no-store",
+  });
+  if (res.status === 401) {
+    onUnauthorized();
+    throw new Error("401: Your session has expired. Please sign in again.");
+  }
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const b = (await res.json()) as { detail?: string };
+      if (b?.detail) detail = b.detail;
+    } catch {
+      /* keep statusText */
+    }
+    throw new Error(`${res.status}: ${detail}`);
+  }
+  return (await res.json()) as CandidateDetail;
+}
+
 export function deleteBrief(id: string): Promise<Job> {
   if (DEMO_MODE) return demoCall(() => demo.demoDeleteBrief(id));
   return request<Job>(`/jobs/${encodeURIComponent(id)}/assignment-brief`, {

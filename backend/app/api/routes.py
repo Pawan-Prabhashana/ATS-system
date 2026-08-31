@@ -6,7 +6,7 @@ import re
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
 from app.auth import current_user
@@ -38,6 +38,7 @@ from app.pipeline.background import (
     start_job_rescore,
     start_site_ingestion,
 )
+from app.pipeline.ingest import add_candidate_from_upload
 from app.pipeline.rescore import rescore_candidate
 from app.pipeline.assignment import (
     BRIEF_FILENAME,
@@ -612,6 +613,38 @@ def rescore_job_start(job_id: str) -> dict:
 @router.get("/jobs/{job_id}/rescore/progress")
 def rescore_job_progress(job_id: str) -> dict:
     return rescore_progress(job_id)
+
+
+@router.post("/jobs/{job_id}/candidates", response_model=CandidateDetail, status_code=201)
+async def add_candidate(
+    job_id: str,
+    file: UploadFile = File(...),
+    name: Optional[str] = Form(None),
+    email: Optional[str] = Form(None),
+    portfolio_url: Optional[str] = Form(None),
+) -> CandidateDetail:
+    """Manually add ONE candidate to a job by uploading their CV (a PDF), with
+    optional name/email/portfolio. It's parsed + scored against the job's rubric
+    and stored like a pulled applicant. A CV already under this job is a no-op
+    (returns the existing candidate)."""
+    job = get_job_repository().get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
+    data = await file.read()
+    try:
+        _outcome, cid = add_candidate_from_upload(
+            job=job,
+            cv_bytes=data,
+            cv_filename=file.filename or "cv.pdf",
+            name=(name or None),
+            email=(email or None),
+            portfolio_url=(portfolio_url or None),
+        )
+    except ValueError as exc:  # non-PDF / corrupt upload
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except EvaluatorConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _to_detail(get_candidate_store().get(cid))
 
 
 # --------------------------------------------------------------------------- #
