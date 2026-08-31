@@ -118,6 +118,16 @@ def get_intake_mode() -> str:
     return os.getenv("INTAKE_MODE", DEFAULT_INTAKE_MODE).strip().lower()
 
 
+def get_google_sheet_tab() -> str | None:
+    """Optional worksheet/tab name within the responses spreadsheet.
+
+    A responses spreadsheet may hold several tabs (e.g. one per hiring round);
+    set ``GOOGLE_SHEET_TAB`` to read a specific tab. Unset -> the first tab.
+    """
+    v = (os.getenv("GOOGLE_SHEET_TAB") or "").strip()
+    return v or None
+
+
 def get_cv_mode() -> str:
     """How CVs are handled for scoring + viewing (Phase 16+):
       - ``pdf_direct`` (default since Phase 17): send the PDF straight to Claude

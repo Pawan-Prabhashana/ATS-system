@@ -19,6 +19,7 @@ from typing import Any
 from app.config import (
     get_google_service_account_file,
     get_google_sheet_id,
+    get_google_sheet_tab,
 )
 from app.intake.base import RawSubmission, detect_role_column
 from app.intake.errors import IntakeConfigError
@@ -37,6 +38,7 @@ _NAME_KEYS = ("name", "full name")
 _EMAIL_KEYS = ("email", "e-mail", "email address")
 _CV_KEYS = ("cv", "resume", "résumé", "upload", "file")
 _TIME_KEYS = ("timestamp", "time", "date")
+_PORTFOLIO_KEYS = ("portfolio", "work sample")
 
 
 class GoogleFormsIntakeSource:
@@ -55,6 +57,13 @@ class GoogleFormsIntakeSource:
         # wired into fetch/probe in Phase 7B).
         self.sheet_id = sheet_id
         self.service_account_file = service_account_file
+        # A spreadsheet can hold several tabs (e.g. one per hiring round). When
+        # GOOGLE_SHEET_TAB is set and the caller didn't pass an explicit range,
+        # scope the read to that tab; otherwise read the first tab ("A:Z").
+        if sheet_range == DEFAULT_RANGE:
+            tab = get_google_sheet_tab()
+            if tab:
+                sheet_range = f"'{tab}'!{DEFAULT_RANGE}"
         self.sheet_range = sheet_range
 
     # -- public API -------------------------------------------------------- #
@@ -103,6 +112,7 @@ class GoogleFormsIntakeSource:
                     submitted_at=None,  # left to later phases if needed
                     cv_file_ref=file_id,
                     role=_get(row, col.get("role")) or None,
+                    portfolio_url=_get(row, col.get("portfolio")) or None,
                     raw_row_data=row,
                 )
             )
@@ -294,6 +304,7 @@ def _resolve_columns(header: list[str]) -> dict[str, str | None]:
         "cv": find(_CV_KEYS),
         "role": detect_role_column(header),
         "timestamp": find(_TIME_KEYS),
+        "portfolio": find(_PORTFOLIO_KEYS),
     }
 
 

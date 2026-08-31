@@ -224,6 +224,7 @@ export interface Candidate {
   name: string | null;
   email: string | null;
   cv_filename: string;
+  portfolio_url: string | null;
   file_hash: string;
   created_at: string;
   status: CandidateStatus;

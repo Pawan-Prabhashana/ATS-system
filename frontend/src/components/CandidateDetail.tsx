@@ -41,6 +41,7 @@ export function CandidateDetail({
   const [note, setNote] = useState("");
   const [changing, setChanging] = useState(false); // "Change decision" expanded
   const [busy, setBusy] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false); // summary clamped to 3 lines
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -186,7 +187,20 @@ export function CandidateDetail({
                 {detail.evaluation.overall_score.toFixed(1)}
                 <span className="ml-1 text-base font-normal text-faint">/100</span>
               </div>
-              <p className="mt-2 max-w-md text-sm leading-relaxed text-muted">{detail.evaluation.summary}</p>
+              <p
+                className={`mt-2 max-w-md text-sm leading-relaxed text-muted${summaryOpen ? "" : " line-clamp-3"}`}
+              >
+                {detail.evaluation.summary}
+              </p>
+              {detail.evaluation.summary.length > 160 && (
+                <button
+                  type="button"
+                  onClick={() => setSummaryOpen((v) => !v)}
+                  className="mt-1 text-xs text-[var(--accent-ink)] hover:underline"
+                >
+                  {summaryOpen ? "Show less" : "Show more"}
+                </button>
+              )}
               <p className="mt-1.5 font-mono text-xs text-faint">{detail.evaluation.evaluated_by}</p>
             </div>
           )}
@@ -235,10 +249,29 @@ export function CandidateDetail({
                     <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-surface-2">
                       <div className="h-1 rounded-full" style={{ width: `${Math.max(0, Math.min(100, c.score))}%`, background: "var(--accent)" }} />
                     </div>
-                    {c.evidence && <p className="mt-2 text-[13px] leading-relaxed text-muted">{c.evidence}</p>}
+                    {c.evidence && (
+                      <p className="mt-2 line-clamp-1 text-[13px] leading-relaxed text-muted" title={c.evidence}>
+                        {c.evidence}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {detail.candidate.portfolio_url && (
+            <div className="mt-6">
+              <Label>Portfolio / work samples</Label>
+              <a
+                href={detail.candidate.portfolio_url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="mt-1 block truncate text-sm text-[var(--accent-ink)] hover:underline"
+                title={detail.candidate.portfolio_url}
+              >
+                {detail.candidate.portfolio_url} ↗
+              </a>
             </div>
           )}
 

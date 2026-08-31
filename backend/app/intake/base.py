@@ -27,6 +27,9 @@ class RawSubmission(BaseModel):
     # The role the applicant selected on the single form's dropdown. Ingestion
     # routes the row to the job whose role_key matches this EXACTLY.
     role: Optional[str] = Field(None, description="Exact form dropdown role value.")
+    # Portfolio / work-samples link the applicant shared on the form (Behance,
+    # Notion, website, etc.). Surfaced in the reviewer UI alongside the CV.
+    portfolio_url: Optional[str] = Field(None, description="Portfolio / work-samples link.")
     job_id: Optional[str] = Field(None, description="Deprecated (per-job routing).")
     raw_row_data: dict[str, Any] = Field(default_factory=dict)
 
@@ -51,9 +54,20 @@ def _normalize_header(s: str) -> str:
 
 
 # Substrings that mark a role/position question header, for auto-detection when
-# FORM_ROLE_COLUMN isn't set (or is set to something that doesn't match). These
-# are specific enough to a role question to avoid matching Name/CV/Timestamp.
-_ROLE_HEADER_HINTS = ("role", "applying for", "position", "which job", "job you")
+# FORM_ROLE_COLUMN isn't set (or set to something that doesn't match). ORDERED
+# most-specific first: a bare "role" is last because unrelated headers can
+# contain the word (e.g. "This role requires full-time commitment. Confirm:")
+# and must not win over the real "Which role are you applying for?" question.
+_ROLE_HEADER_HINTS = (
+    "applying for",
+    "role are you",
+    "roles are you",
+    "which role",
+    "which job",
+    "role you",
+    "position",
+    "role",
+)
 
 
 def detect_role_column(headers: list[str]) -> str | None:
@@ -62,9 +76,10 @@ def detect_role_column(headers: list[str]) -> str | None:
     Priority: an exact ``FORM_ROLE_COLUMN`` match (case-, whitespace- and
     smart-quote-insensitive). If that env is unset OR set to something not
     present in the sheet, fall back to auto-detecting a header that reads like a
-    role question (see ``_ROLE_HEADER_HINTS``) — so a missing/typo'd env value
-    doesn't silently block routing. Returns None only when nothing looks like a
-    role column (a clear "not detected" for the intake-status endpoint).
+    role question, trying the hints in ``_ROLE_HEADER_HINTS`` order (most
+    specific first) so a missing/typo'd env value doesn't silently block routing
+    and a generic 'role' mention doesn't beat the real question. Returns None
+    only when nothing looks like a role column (a clear "not detected").
     """
     from app.config import get_form_role_column
 
@@ -75,10 +90,11 @@ def detect_role_column(headers: list[str]) -> str | None:
             if _normalize_header(h) == target:
                 return h
         # set-but-unmatched: don't hard-fail — try the hints below.
-    for h in headers:
-        nh = _normalize_header(h)
-        if any(hint in nh for hint in _ROLE_HEADER_HINTS):
-            return h
+    normalized = [(h, _normalize_header(h)) for h in headers]
+    for hint in _ROLE_HEADER_HINTS:
+        for h, nh in normalized:
+            if hint in nh:
+                return h
     return None
 
 

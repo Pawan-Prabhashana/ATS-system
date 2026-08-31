@@ -283,6 +283,7 @@ def _ingest_one(
             "email": submission.email,
             "job_id": effective_job_id,
             "cv_drive_file_id": cv_drive_file_id,
+            "portfolio_url": submission.portfolio_url,
             "status": CandidateStatus.parsed,
         }
     )
