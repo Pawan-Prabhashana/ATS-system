@@ -10,7 +10,6 @@ import {
   mediaUrl,
   openAuthedFile,
   sendAssignment,
-  type Candidate,
   type CandidateDetail as Detail,
   type Decision,
   type Job,
@@ -211,9 +210,6 @@ export function CandidateDetail({
             </div>
           )}
 
-          {/* Attribution — who acted on this candidate */}
-          <Attribution candidate={detail.candidate} />
-
           {/* Review panel — one state, not a permanent question */}
           <div className="rounded-xl border border-line bg-surface p-4">
             {pending !== null ? (
@@ -379,7 +375,7 @@ function ReviewState({
   if (c.status === "shortlisted") {
     return (
       <>
-        <Confirmed color="var(--tier-shortlist)" label="Shortlisted" at={c.decided_at} note={c.reviewer_note} />
+        <Confirmed color="var(--tier-shortlist)" label="Shortlisted" at={c.decided_at} note={c.reviewer_note} by={c.decided_by ? firstName(c.decided_by) : null} />
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button size="sm" loading={busy} onClick={onSend}>
             {hasBrief ? "Send assignment" : "Set up assignment"}
@@ -409,6 +405,7 @@ function ReviewState({
           label={`Assignment sent${c.assignment_sent_count > 1 ? ` · ${c.assignment_sent_count}×` : ""}`}
           at={c.assignment_sent_at}
           note={null}
+          by={c.assignment_sent_by ? firstName(c.assignment_sent_by) : null}
         />
         <p className="mt-1 text-xs text-muted">Due {formatDate(c.assignment_deadline)}.</p>
         {DEMO_MODE && (
@@ -426,7 +423,7 @@ function ReviewState({
   // rejected
   return (
     <>
-      <Confirmed color="var(--tier-reject)" label="Rejected" at={c.decided_at} note={c.reviewer_note} />
+      <Confirmed color="var(--tier-reject)" label="Rejected" at={c.decided_at} note={c.reviewer_note} by={c.decided_by ? firstName(c.decided_by) : null} />
       <div className="mt-3">
         <Button size="sm" variant="ghost" onClick={onToggleChange}>Change decision</Button>
       </div>
@@ -445,11 +442,13 @@ function Confirmed({
   label,
   at,
   note,
+  by,
 }: {
   color: string;
   label: string;
   at: string | null;
   note: string | null;
+  by?: string | null;
 }) {
   return (
     <div>
@@ -464,6 +463,7 @@ function Confirmed({
             </svg>
           </span>
           {label}
+          {by && <span className="font-normal text-muted"> · by {by}</span>}
         </span>
         {at && <span className="font-mono text-xs text-faint">{formatDateTime(at)}</span>}
       </div>
@@ -480,26 +480,6 @@ function defaultDeadline(): string {
 
 function firstName(full: string): string {
   return full.trim().split(/\s+/)[0] || full;
-}
-
-/** Who acted on this candidate — shown by first name ("Shortlisted by Abdul"). */
-function Attribution({ candidate: c }: { candidate: Candidate }) {
-  const items: string[] = [];
-  if (c.decided_by && (c.status === "shortlisted" || c.status === "rejected" || c.status === "assignment_sent")) {
-    const verb = c.status === "rejected" ? "Rejected" : "Shortlisted";
-    items.push(`${verb} by ${firstName(c.decided_by)}`);
-  }
-  if (c.assignment_sent_by && c.status === "assignment_sent") {
-    items.push(`Assignment sent by ${firstName(c.assignment_sent_by)}`);
-  }
-  if (items.length === 0) return null;
-  return (
-    <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-faint">
-      {items.map((t) => (
-        <span key={t}>{t}</span>
-      ))}
-    </div>
-  );
 }
 
 /** Confirm sending an assignment, choosing the submission deadline. */
