@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import { DecisionChip, TierChip, VerdictTrack } from "@/components/verdict";
 import { Button, Label, Spinner, TextArea } from "@/components/ui";
+import { MicButton } from "@/components/MicButton";
 import { formatDate, formatDateTime, initials } from "@/lib/format";
 
 export function CandidateDetail({
@@ -561,12 +562,35 @@ function NoteConfirm({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const [voiceErr, setVoiceErr] = useState<string | null>(null);
   return (
     <div>
       <p className="mb-2 text-sm text-muted">
         {decision === "shortlist" ? "Shortlist" : "Reject"} {name ?? "this candidate"}?
       </p>
-      <TextArea value={note} onChange={(e) => onNote(e.target.value)} rows={2} placeholder="Add a note (optional)" />
+      <div className="relative">
+        <TextArea
+          value={note}
+          onChange={(e) => onNote(e.target.value)}
+          rows={2}
+          placeholder="Add a note (or tap the mic to dictate)…"
+          className="pr-11"
+        />
+        <div className="absolute bottom-2 right-2">
+          <MicButton
+            size={30}
+            title="Dictate note"
+            onText={(t) => {
+              onNote(note.trim() ? `${note.trim()} ${t}` : t);
+              setVoiceErr(null);
+            }}
+            onError={(m) => setVoiceErr(m)}
+          />
+        </div>
+      </div>
+      {voiceErr && (
+        <p className="mt-1 text-xs" style={{ color: "var(--tier-reject)" }}>{voiceErr}</p>
+      )}
       <div className="mt-2 flex gap-2">
         <Button size="sm" loading={busy} onClick={onConfirm}>Confirm {decision}</Button>
         <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>Cancel</Button>

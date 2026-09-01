@@ -267,6 +267,15 @@ def get_resend_api_key() -> str | None:
     return os.getenv("RESEND_API_KEY")
 
 
+def get_groq_api_key() -> str | None:
+    return os.getenv("GROQ_API_KEY")
+
+
+def get_groq_transcribe_model() -> str:
+    """Groq Whisper model for voice→text. Turbo is fast + cheap + accurate."""
+    return os.getenv("GROQ_TRANSCRIBE_MODEL", "whisper-large-v3-turbo").strip()
+
+
 def get_resend_from_email() -> str | None:
     return os.getenv("RESEND_FROM_EMAIL")
 

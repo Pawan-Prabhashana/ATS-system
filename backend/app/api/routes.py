@@ -51,6 +51,7 @@ from app.pipeline.assignment import (
 )
 from app.store import CandidateRecord
 from app.store.chat_store import get_chat_store
+from app.transcribe import TranscribeConfigError, TranscribeError, transcribe_audio
 from app.store.factory import get_candidate_store, get_job_repository
 
 router = APIRouter()
@@ -760,3 +761,23 @@ def chat_post(body: ChatPostRequest, actor: dict = Depends(current_user)) -> Cha
     if not text:
         raise HTTPException(status_code=400, detail="Message can't be empty.")
     return get_chat_store().add(actor["username"], actor["full_name"], text[:4000])
+
+
+# --------------------------------------------------------------------------- #
+# Voice → text (Groq Whisper) — used by chat + decision notes
+# --------------------------------------------------------------------------- #
+@router.post("/transcribe")
+async def transcribe(file: UploadFile = File(...)) -> dict:
+    """Transcribe a recorded audio clip to text. The Groq key stays server-side."""
+    data = await file.read()
+    try:
+        text = transcribe_audio(
+            data,
+            file.filename or "audio.webm",
+            content_type=file.content_type or "audio/webm",
+        )
+    except TranscribeConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TranscribeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"text": text}

@@ -8,6 +8,7 @@ import {
   type ChatMessage,
   type Me,
 } from "@/lib/api";
+import { MicButton } from "@/components/MicButton";
 
 const AVATAR_COLORS = [
   "#6366f1", "#0ea5e9", "#10b981", "#f59e0b",
@@ -230,6 +231,13 @@ export default function TeamChatPage() {
             rows={1}
             placeholder="Message the team…  (Enter to send, Shift+Enter for a new line)"
             className="thin-scroll max-h-32 min-h-[24px] flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-faint"
+          />
+          <MicButton
+            onText={(t) => {
+              setDraft((d) => (d.trim() ? `${d.trim()} ${t}` : t));
+              setError(null);
+            }}
+            onError={(m) => setError(m)}
           />
           <button
             onClick={() => void send()}

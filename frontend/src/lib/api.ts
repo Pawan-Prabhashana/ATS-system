@@ -544,6 +544,36 @@ export function postChatMessage(body: string): Promise<ChatMessage> {
   return request<ChatMessage>("/chat/messages", { method: "POST", body: JSON.stringify({ body }) });
 }
 
+// -- Voice → text (Groq Whisper) --------------------------------------------
+/** Transcribe a recorded audio blob to text (the Groq key stays server-side). */
+export async function transcribeAudio(blob: Blob, filename = "voice.webm"): Promise<string> {
+  if (DEMO_MODE) throw new Error("Voice is disabled in the demo build.");
+  const fd = new FormData();
+  fd.append("file", blob, filename);
+  const res = await fetch(`${API_BASE}/transcribe`, {
+    method: "POST",
+    body: fd,
+    headers: authHeaders(),
+    cache: "no-store",
+  });
+  if (res.status === 401) {
+    onUnauthorized();
+    throw new Error("401: Your session has expired. Please sign in again.");
+  }
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const b = (await res.json()) as { detail?: string };
+      if (b?.detail) detail = b.detail;
+    } catch {
+      /* keep statusText */
+    }
+    throw new Error(`${res.status}: ${detail}`);
+  }
+  const data = (await res.json()) as { text?: string };
+  return (data.text ?? "").trim();
+}
+
 /** Every role on the form + whether a job serves it (powers "needs setup"). */
 export function listRoles(): Promise<RoleInfo[]> {
   if (DEMO_MODE) return demoCall(() => demo.demoListRoles());
