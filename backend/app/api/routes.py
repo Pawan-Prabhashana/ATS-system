@@ -354,29 +354,39 @@ async def upload_assignment_brief(
             status_code=400, detail="The assignment brief must be a PDF file."
         )
 
+    # Store the bytes in the DB (survives restarts — Render's disk is ephemeral)
+    # AND write to disk as a fast local cache.
     path = job_brief_path(job_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    except OSError:
+        pass  # DB copy is the source of truth
     filename = file.filename or BRIEF_FILENAME
-    return repo.update(job.model_copy(update={"assignment_brief_filename": filename}))
+    return repo.update(
+        job.model_copy(update={"assignment_brief_filename": filename, "assignment_brief_data": data})
+    )
 
 
 @router.get("/jobs/{job_id}/assignment-brief")
 def get_assignment_brief(job_id: str):
-    """Serve the job's brief PDF for preview/confirm. 404 if none uploaded."""
+    """Serve the job's brief PDF for preview/confirm. 404 if none uploaded.
+    Prefers the local file; falls back to the DB copy (after a restart wipes disk)."""
     job = get_job_repository().get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
+    if not job.assignment_brief_filename:
+        raise HTTPException(status_code=404, detail="No assignment brief uploaded for this job.")
     path = job_brief_path(job_id)
-    if not (job.assignment_brief_filename and path.exists()):
-        raise HTTPException(
-            status_code=404, detail="No assignment brief uploaded for this job."
+    if path.exists():
+        return FileResponse(str(path), media_type="application/pdf", filename=job.assignment_brief_filename)
+    if job.assignment_brief_data:
+        return StreamingResponse(
+            io.BytesIO(job.assignment_brief_data),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{job.assignment_brief_filename}"'},
         )
-    return FileResponse(
-        str(path),
-        media_type="application/pdf",
-        filename=job.assignment_brief_filename,
-    )
+    raise HTTPException(status_code=404, detail="No assignment brief uploaded for this job.")
 
 
 @router.delete("/jobs/{job_id}/assignment-brief", response_model=Job)
@@ -388,7 +398,9 @@ def delete_assignment_brief(job_id: str) -> Job:
     path = job_brief_path(job_id)
     if path.exists():
         path.unlink()
-    return repo.update(job.model_copy(update={"assignment_brief_filename": None}))
+    return repo.update(
+        job.model_copy(update={"assignment_brief_filename": None, "assignment_brief_data": None})
+    )
 
 
 def _job_or_404(job_id: str) -> Job:

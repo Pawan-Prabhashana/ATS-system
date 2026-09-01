@@ -22,6 +22,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -46,6 +47,7 @@ class JobRow(Base):
     role_key: Mapped[str] = mapped_column(String, nullable=False, default="")
     google_sheet_id: Mapped[str | None] = mapped_column(String, nullable=True)
     assignment_brief_filename: Mapped[str | None] = mapped_column(String, nullable=True)
+    assignment_brief_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)  # brief PDF (persists restarts)
     assignment_deadline_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     assignment_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

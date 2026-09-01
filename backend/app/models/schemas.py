@@ -202,6 +202,11 @@ class Job(BaseModel):
     # Assignment dispatch config (Phase 9). The brief file itself lives on disk
     # at data/jobs/{id}/assignment_brief.pdf; this holds the original filename.
     assignment_brief_filename: Optional[str] = None
+    # The brief PDF bytes, stored in the DB so the file survives restarts (Render's
+    # disk is ephemeral). Excluded from API responses + JSON serialization; the
+    # SQL store maps it explicitly. None when no brief, or on the local disk-only
+    # path. See app/pipeline/assignment.py for how it's resolved at send time.
+    assignment_brief_data: Optional[bytes] = Field(default=None, exclude=True, repr=False)
     assignment_deadline_days: Optional[int] = Field(
         None, description="Days until the assignment deadline; None = env default."
     )

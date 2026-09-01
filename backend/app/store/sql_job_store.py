@@ -41,6 +41,7 @@ def _to_job(row: JobRow) -> Job:
         role_key=row.role_key or "",
         google_sheet_id=row.google_sheet_id,
         assignment_brief_filename=row.assignment_brief_filename,
+        assignment_brief_data=row.assignment_brief_data,
         assignment_deadline_days=row.assignment_deadline_days,
         assignment_message=row.assignment_message,
         created_at=_as_utc(row.created_at),
@@ -56,6 +57,7 @@ def _apply(row: JobRow, job: Job) -> None:
     row.role_key = job.role_key or ""
     row.google_sheet_id = job.google_sheet_id
     row.assignment_brief_filename = job.assignment_brief_filename
+    row.assignment_brief_data = job.assignment_brief_data
     row.assignment_deadline_days = job.assignment_deadline_days
     row.assignment_message = job.assignment_message
     row.created_at = job.created_at

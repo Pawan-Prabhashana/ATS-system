@@ -6,6 +6,8 @@ route stays a thin translator of :class:`SendOutcome` into HTTP status codes.
 """
 from __future__ import annotations
 
+import os
+import tempfile
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
@@ -138,64 +140,85 @@ def send_assignment_to_candidate(
     job_repo = job_repo or get_job_repository()
     job = job_repo.get(record.candidate.job_id) if record.candidate.job_id else None
 
+    # Resolve the brief to a concrete file for the email attachment. Prefer the
+    # local disk cache; if it was wiped (Render's ephemeral disk) fall back to the
+    # DB copy, materialized to a temp file. Only "no brief at all" blocks sending.
     brief_path = job_brief_path(record.candidate.job_id) if record.candidate.job_id else None
-    has_brief = bool(
-        job and job.assignment_brief_filename and brief_path and brief_path.exists()
-    )
-    if not has_brief:
+    tmp_brief: str | None = None
+    if not (job and job.assignment_brief_filename):
         return SendOutcome(
             candidate_id=candidate_id,
             success=False,
             status=SendOutcomeStatus.no_assignment_brief,
             detail="Upload an assignment brief for this job before sending.",
         )
+    if not (brief_path and brief_path.exists()):
+        if job.assignment_brief_data:
+            fd, tmp_brief = tempfile.mkstemp(prefix="catalist-brief-", suffix=".pdf")
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(job.assignment_brief_data)
+            brief_path = Path(tmp_brief)
+        else:
+            return SendOutcome(
+                candidate_id=candidate_id,
+                success=False,
+                status=SendOutcomeStatus.no_assignment_brief,
+                detail="The assignment brief is missing — please re-upload it, then send.",
+            )
 
-    job_title = job.title if job else "the role"
-    # Prefer an explicit deadline chosen at send time; else fall back to the
-    # per-job "deadline in N days" (or the global default).
-    if deadline_date is not None:
-        deadline = deadline_date
-    else:
-        deadline_days = (
-            job.assignment_deadline_days
-            if job and job.assignment_deadline_days is not None
-            else get_assignment_deadline_days()
-        )
-        deadline = date.today() + timedelta(days=deadline_days)
-    sent_at = datetime.now(timezone.utc)
-    render_kwargs = {
-        "brief_filename": job.assignment_brief_filename or BRIEF_FILENAME,
-        "custom_message": job.assignment_message if job else None,
-    }
-    if sender_name:
-        render_kwargs["sender_name"] = sender_name
-    message = render_assignment_email(record.candidate, job_title, deadline, brief_path, **render_kwargs)
-
-    # Send. Config problems (unset creds) -> config_error; a send failure ->
-    # failed, and crucially the status is NOT advanced so the reviewer can retry.
-    sender = sender or get_email_sender()
     try:
-        result = sender.send(message)
-    except EmailConfigError as exc:
-        return SendOutcome(
-            candidate_id=candidate_id,
-            success=False,
-            status=SendOutcomeStatus.config_error,
-            detail=str(exc),
-        )
+        job_title = job.title if job else "the role"
+        # Prefer an explicit deadline chosen at send time; else fall back to the
+        # per-job "deadline in N days" (or the global default).
+        if deadline_date is not None:
+            deadline = deadline_date
+        else:
+            deadline_days = (
+                job.assignment_deadline_days
+                if job and job.assignment_deadline_days is not None
+                else get_assignment_deadline_days()
+            )
+            deadline = date.today() + timedelta(days=deadline_days)
+        sent_at = datetime.now(timezone.utc)
+        render_kwargs = {
+            "brief_filename": job.assignment_brief_filename or BRIEF_FILENAME,
+            "custom_message": job.assignment_message if job else None,
+        }
+        if sender_name:
+            render_kwargs["sender_name"] = sender_name
+        message = render_assignment_email(record.candidate, job_title, deadline, brief_path, **render_kwargs)
 
-    if not result.success:
-        return SendOutcome(
-            candidate_id=candidate_id,
-            success=False,
-            status=SendOutcomeStatus.failed,
-            detail=f"Assignment email failed to send: {result.error}",
-        )
+        # Send. Config problems (unset creds) -> config_error; a send failure ->
+        # failed, and crucially the status is NOT advanced so the reviewer can retry.
+        sender = sender or get_email_sender()
+        try:
+            result = sender.send(message)
+        except EmailConfigError as exc:
+            return SendOutcome(
+                candidate_id=candidate_id,
+                success=False,
+                status=SendOutcomeStatus.config_error,
+                detail=str(exc),
+            )
 
-    store.record_assignment_sent(candidate_id, sent_at, deadline, sent_by=sender_name)
-    return SendOutcome(
-        candidate_id=candidate_id, success=True, status=SendOutcomeStatus.sent
-    )
+        if not result.success:
+            return SendOutcome(
+                candidate_id=candidate_id,
+                success=False,
+                status=SendOutcomeStatus.failed,
+                detail=f"Assignment email failed to send: {result.error}",
+            )
+
+        store.record_assignment_sent(candidate_id, sent_at, deadline, sent_by=sender_name)
+        return SendOutcome(
+            candidate_id=candidate_id, success=True, status=SendOutcomeStatus.sent
+        )
+    finally:
+        if tmp_brief:
+            try:
+                os.unlink(tmp_brief)
+            except OSError:
+                pass
 
 
 def bulk_send_assignments(
