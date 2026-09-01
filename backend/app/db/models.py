@@ -78,6 +78,7 @@ class CandidateRow(Base):
     source_form_row: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cv_filename: Mapped[str] = mapped_column(String, nullable=False)
     cv_drive_file_id: Mapped[str | None] = mapped_column(String, nullable=True)  # Phase 16 pdf_direct
+    cv_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)  # manual-upload CV (persists restarts)
     portfolio_url: Mapped[str | None] = mapped_column(String, nullable=True)  # portfolio / work-samples link
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)

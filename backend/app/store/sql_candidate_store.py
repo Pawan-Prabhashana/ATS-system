@@ -45,6 +45,7 @@ def _to_candidate(row: CandidateRow) -> Candidate:
         source_form_row=row.source_form_row,
         cv_filename=row.cv_filename,
         cv_drive_file_id=row.cv_drive_file_id,
+        cv_data=row.cv_data,
         portfolio_url=row.portfolio_url,
         file_hash=row.file_hash,
         created_at=_as_utc(row.created_at),
@@ -83,6 +84,7 @@ def _apply_candidate(row: CandidateRow, candidate: Candidate) -> None:
     row.source_form_row = candidate.source_form_row
     row.cv_filename = candidate.cv_filename
     row.cv_drive_file_id = candidate.cv_drive_file_id
+    row.cv_data = candidate.cv_data
     row.portfolio_url = candidate.portfolio_url
     row.created_at = candidate.created_at
     row.status = _enum_value(candidate.status)

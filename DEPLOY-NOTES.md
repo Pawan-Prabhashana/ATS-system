@@ -83,7 +83,9 @@ Both services auto-deploy from GitHub `main` (`Pawan-Prabhashana/ATS-system`):
 
 ## Database note
 
-**Render's disk is ephemeral** — files written locally are wiped on every redeploy/restart. So the **assignment brief PDF is stored in Postgres** (`jobs.assignment_brief_data`) and materialized to a temp file at send time; the local copy is just a cache. ⚠️ Known same-class caveat: a **manually-added candidate's CV** is still stored on local disk only, so its PDF viewer/rescore can break after a restart (Google-pulled CVs are fine — they stream from Drive). Fixable the same way (store bytes in the DB) if manual adds become common.
+**Render's disk is ephemeral** — files written locally are wiped on every redeploy/restart, so anything that must persist is stored in Postgres:
+- **Assignment brief PDF** → `jobs.assignment_brief_data` (materialized to a temp file at send time; local copy is a cache).
+- **Manually-uploaded candidate CV** → `candidates.cv_data` (served by the PDF viewer + used for rescore when the disk copy is gone). Google-pulled CVs stream from Drive, so they're not stored in the DB.
 
 **Team chat** persists to a `chat_messages` table (created automatically by `create_all` on boot — new *tables* are created, so no manual migration). The `/chat` page polls for new messages every 3s and shows full names.
 

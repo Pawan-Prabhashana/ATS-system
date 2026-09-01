@@ -506,8 +506,13 @@ def _to_detail(record: CandidateRecord) -> CandidateDetail:
     cv_url = _media_url(cid, record.cv_file) if record.cv_file else None
     page_urls = [_media_url(cid, name) for name in record.page_image_files]
 
-    # A PDF is retrievable if it came from Drive or a local copy exists.
-    has_pdf = bool(record.candidate.cv_drive_file_id) or _local_cv_path(record) is not None
+    # A PDF is retrievable if it came from Drive, a local copy exists, or we have
+    # the bytes in the DB (manual upload, disk may have been wiped).
+    has_pdf = (
+        bool(record.candidate.cv_drive_file_id)
+        or _local_cv_path(record) is not None
+        or bool(record.candidate.cv_data)
+    )
     cv_pdf_url = f"/candidates/{cid}/cv" if has_pdf else None
 
     job_id = record.candidate.job_id or None
@@ -565,6 +570,15 @@ def get_candidate_cv(candidate_id: str):
     local = _local_cv_path(record)
     if local is not None:
         return FileResponse(local, media_type="application/pdf", filename=filename)
+
+    # Manual uploads: the disk copy may be gone after a restart — fall back to the
+    # DB bytes so the viewer keeps working.
+    if record.candidate.cv_data:
+        return StreamingResponse(
+            io.BytesIO(record.candidate.cv_data),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        )
 
     raise HTTPException(status_code=404, detail="No CV file available for this candidate.")
 

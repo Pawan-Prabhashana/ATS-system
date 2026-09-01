@@ -67,6 +67,12 @@ class Candidate(BaseModel):
     # viewer can fetch it on demand without local image storage. None for
     # fixture/local CVs (served from the persisted local PDF instead).
     cv_drive_file_id: Optional[str] = None
+    # CV PDF bytes stored in the DB — ONLY for CVs with no Drive origin (manual
+    # uploads), so the viewer/rescore survive a restart (Render's disk is
+    # ephemeral). Google-pulled CVs stream from Drive instead, so this stays None
+    # for them (avoids bloating the DB). Excluded from API + JSON serialization;
+    # the SQL store maps it explicitly.
+    cv_data: Optional[bytes] = Field(default=None, exclude=True, repr=False)
     # Portfolio / work-samples link from the application form (design/creative
     # roles). None when the form has no such field or the applicant left it blank.
     portfolio_url: Optional[str] = None

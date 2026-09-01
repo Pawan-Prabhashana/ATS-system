@@ -362,7 +362,10 @@ def add_candidate_from_upload(
                 "name": (name or candidate.name),
                 "email": email,
                 "job_id": job.id,
-                "cv_drive_file_id": None,  # uploaded -> served from the local PDF
+                "cv_drive_file_id": None,  # uploaded -> no Drive origin
+                # Persist the bytes in the DB so the viewer/rescore survive a
+                # restart (Render's disk is ephemeral); the local PDF is a cache.
+                "cv_data": cv_bytes,
                 "portfolio_url": portfolio_url,
                 "status": CandidateStatus.parsed,
             }

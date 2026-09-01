@@ -32,7 +32,9 @@ def _load_cv_bytes(record: CandidateRecord) -> bytes:
         path = settings.data_dir / record.artifact_dir / record.cv_file
         if path.exists():
             return path.read_bytes()
-    raise FileNotFoundError("No CV available to rescore (no Drive id or local PDF).")
+    if cand.cv_data:  # manual upload — disk copy may be gone after a restart
+        return cand.cv_data
+    raise FileNotFoundError("No CV available to rescore (no Drive id, local PDF, or stored bytes).")
 
 
 def rescore_candidate(
