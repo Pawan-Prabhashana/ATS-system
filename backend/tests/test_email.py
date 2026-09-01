@@ -73,7 +73,7 @@ def test_render_assignment_email_catalist_template(tmp_path):
     # Catalist Media assignment wording + ordinal deadline.
     assert "Thank you for applying to Catalist Media" in msg.html_body
     assert "25th August 2026" in msg.html_body
-    assert "hello@catalist.media" in msg.html_body
+    assert "wanna.work@catalist.media" in msg.html_body
     assert "+94 774990833" in msg.html_body
     assert "A note from us." in msg.html_body  # custom per-job message
     # Sender's full name is rendered in the signature (attribution).

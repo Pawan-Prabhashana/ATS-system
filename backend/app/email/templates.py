@@ -10,7 +10,7 @@ from app.models import Candidate
 
 DEFAULT_BRIEF_FILENAME = "assignment_brief.pdf"
 DEFAULT_SENDER_NAME = "The Catalist Media Team"
-SUBMISSION_EMAIL = "hello@catalist.media"
+SUBMISSION_EMAIL = "wanna.work@catalist.media"
 CONTACT_PHONE = "+94 774990833"
 
 
