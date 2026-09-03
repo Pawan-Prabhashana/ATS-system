@@ -128,6 +128,17 @@ def get_google_sheet_tab() -> str | None:
     return v or None
 
 
+def get_ingest_concurrency() -> int:
+    """How many CVs to download+score in parallel during a pull. The work is
+    I/O-bound (Drive + Claude), so parallelism cuts pull time roughly N×. More
+    parallelism uses more memory, though — keep it modest on a small instance
+    (2-4 on 512 MB) and raise it (8+) on a larger one. Tune via ``INGEST_CONCURRENCY``."""
+    try:
+        return max(1, min(16, int(os.getenv("INGEST_CONCURRENCY", "3"))))
+    except ValueError:
+        return 3
+
+
 def get_max_cv_mb() -> float:
     """Skip CVs larger than this (MB) during a pull. A single very large PDF
     (design portfolios) can blow the memory limit on a small instance and crash

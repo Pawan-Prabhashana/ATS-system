@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -36,6 +37,10 @@ class JSONCandidateStore:
 
     def __init__(self, path: str | Path | None = None) -> None:
         self.path = Path(path) if path else get_candidate_store_path()
+        # Serialize read-modify-write mutations so a concurrent (parallel) pull
+        # can't lose updates on this single JSON file. The shared store instance
+        # is what workers hold, so an instance lock is sufficient.
+        self._lock = threading.Lock()
 
     # -- reads ------------------------------------------------------------- #
     def _load(self) -> dict[str, CandidateRecord]:
@@ -86,7 +91,6 @@ class JSONCandidateStore:
         cv_file: Optional[str] = None,
         page_image_files: Optional[list[str]] = None,
     ) -> None:
-        records = self._load()
         parsed_artifacts_dir = None
         page_count = 0
         quality = None
@@ -98,25 +102,28 @@ class JSONCandidateStore:
                     Path(parsed_cv.page_images[0].image_path).parent.parent
                 )
 
-        records[candidate.id] = CandidateRecord(
-            candidate=candidate,
-            evaluation=evaluation,
-            parsed_artifacts_dir=parsed_artifacts_dir,
-            page_count=page_count,
-            text_extraction_quality=quality,
-            artifact_dir=artifact_dir,
-            cv_file=cv_file,
-            page_image_files=page_image_files or [],
-        )
-        self._write(records)
+        with self._lock:
+            records = self._load()
+            records[candidate.id] = CandidateRecord(
+                candidate=candidate,
+                evaluation=evaluation,
+                parsed_artifacts_dir=parsed_artifacts_dir,
+                page_count=page_count,
+                text_extraction_quality=quality,
+                artifact_dir=artifact_dir,
+                cv_file=cv_file,
+                page_image_files=page_image_files or [],
+            )
+            self._write(records)
 
     def update_status(self, candidate_id: str, status: CandidateStatus) -> None:
-        records = self._load()
-        record = records.get(candidate_id)
-        if record is None:
-            raise KeyError(f"No candidate with id {candidate_id!r}")
-        record.candidate.status = status
-        self._write(records)
+        with self._lock:
+            records = self._load()
+            record = records.get(candidate_id)
+            if record is None:
+                raise KeyError(f"No candidate with id {candidate_id!r}")
+            record.candidate.status = status
+            self._write(records)
 
     def update_decision(
         self,
@@ -131,23 +138,24 @@ class JSONCandidateStore:
                 f"Invalid decision {decision!r}; expected 'shortlist', 'reject', "
                 "or 'undecided'."
             )
-        records = self._load()
-        record = records.get(candidate_id)
-        if record is None:
-            raise KeyError(f"No candidate with id {candidate_id!r}")
+        with self._lock:
+            records = self._load()
+            record = records.get(candidate_id)
+            if record is None:
+                raise KeyError(f"No candidate with id {candidate_id!r}")
 
-        record.candidate.status = status
-        if decision == "undecided":
-            # Clean undo — wipe the decision metadata + attribution too.
-            record.candidate.reviewer_note = None
-            record.candidate.decided_at = None
-            record.candidate.decided_by = None
-        else:
-            record.candidate.reviewer_note = note
-            record.candidate.decided_at = datetime.now(timezone.utc)
-            record.candidate.decided_by = decided_by
-        self._write(records)
-        return record
+            record.candidate.status = status
+            if decision == "undecided":
+                # Clean undo — wipe the decision metadata + attribution too.
+                record.candidate.reviewer_note = None
+                record.candidate.decided_at = None
+                record.candidate.decided_by = None
+            else:
+                record.candidate.reviewer_note = note
+                record.candidate.decided_at = datetime.now(timezone.utc)
+                record.candidate.decided_by = decided_by
+            self._write(records)
+            return record
 
     def record_assignment_sent(
         self,
@@ -156,19 +164,20 @@ class JSONCandidateStore:
         deadline: date,
         sent_by: Optional[str] = None,
     ) -> CandidateRecord:
-        records = self._load()
-        record = records.get(candidate_id)
-        if record is None:
-            raise KeyError(f"No candidate with id {candidate_id!r}")
+        with self._lock:
+            records = self._load()
+            record = records.get(candidate_id)
+            if record is None:
+                raise KeyError(f"No candidate with id {candidate_id!r}")
 
-        record.candidate.status = CandidateStatus.assignment_sent
-        record.candidate.assignment_sent_at = sent_at
-        record.candidate.assignment_deadline = deadline
-        record.candidate.assignment_sent_count += 1
-        if sent_by:
-            record.candidate.assignment_sent_by = sent_by
-        self._write(records)
-        return record
+            record.candidate.status = CandidateStatus.assignment_sent
+            record.candidate.assignment_sent_at = sent_at
+            record.candidate.assignment_deadline = deadline
+            record.candidate.assignment_sent_count += 1
+            if sent_by:
+                record.candidate.assignment_sent_by = sent_by
+            self._write(records)
+            return record
 
     # -- persistence ------------------------------------------------------- #
     def _write(self, records: dict[str, CandidateRecord]) -> None:

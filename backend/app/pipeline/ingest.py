@@ -1,16 +1,19 @@
 """Ingestion pipeline: intake -> parse -> dedup -> evaluate -> store."""
 from __future__ import annotations
 
+import concurrent.futures
 import gc
 import hashlib
 import shutil
 import tempfile
+import threading
+import uuid
 from pathlib import Path
 from typing import Callable, Optional
 
 from pydantic import BaseModel, Field
 
-from app.config import get_cv_mode, get_max_cv_mb, settings
+from app.config import get_cv_mode, get_ingest_concurrency, get_max_cv_mb, settings
 from app.evaluation import get_evaluator
 from app.evaluation.base import Evaluator
 from app.evaluation.errors import EvaluatorConfigError
@@ -185,7 +188,17 @@ def run_site_ingestion(
     summary = SiteIngestionSummary()
     submissions = intake_source.fetch_new_submissions()
     total = len(submissions)
+    lock = threading.Lock()
     done = 0
+
+    def bump() -> None:
+        nonlocal done
+        with lock:
+            done += 1
+            n = done
+        if on_progress:
+            on_progress(n, total)
+
     if on_progress:
         on_progress(0, total)
 
@@ -195,30 +208,40 @@ def run_site_ingestion(
         work_dir = tmp_ctx.name
     work_dir = Path(work_dir)
 
-    try:
-        for submission in submissions:
-            role = (submission.role or "").strip()
-            job = by_role.get(role)
-            if job is None:
-                key = role or "(no role selected)"
+    # Partition: rows for a role with no configured job are HELD (no work); the
+    # rest are scored. Held rows are counted here (fast); scored rows run in a
+    # bounded thread pool because each is I/O-bound (Drive download + Claude call)
+    # so parallelism cuts the total pull time roughly N×.
+    matched: list[tuple[RawSubmission, Job]] = []
+    for submission in submissions:
+        role = (submission.role or "").strip()
+        job = by_role.get(role)
+        if job is None:
+            key = role or "(no role selected)"
+            with lock:
                 summary.held_by_role[key] = summary.held_by_role.get(key, 0) + 1
                 summary.held_total += 1
-                done += 1
-                if on_progress:
-                    on_progress(done, total)
-                continue
-            try:
-                outcome, cid = _ingest_one(
-                    submission,
-                    effective_job_id=job.id,
-                    job_description=job.job_description,
-                    rubric=job.rubric,
-                    intake_source=intake_source,
-                    store=store,
-                    evaluator=evaluator,
-                    work_dir=work_dir,
-                )
-            except Exception as exc:  # noqa: BLE001 - one bad CV must not abort the batch
+            bump()
+        else:
+            matched.append((submission, job))
+
+    def _process(submission: RawSubmission, job: Job) -> None:
+        # A unique subdir per CV so concurrent downloads never collide on filename.
+        sub_dir = work_dir / uuid.uuid4().hex
+        sub_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            outcome, cid = _ingest_one(
+                submission,
+                effective_job_id=job.id,
+                job_description=job.job_description,
+                rubric=job.rubric,
+                intake_source=intake_source,
+                store=store,
+                evaluator=evaluator,
+                work_dir=sub_dir,
+            )
+        except Exception as exc:  # noqa: BLE001 - one bad CV must not abort the batch
+            with lock:
                 summary.failed += 1
                 summary.failures.append(
                     IngestionFailure(
@@ -227,23 +250,29 @@ def run_site_ingestion(
                         reason=f"{type(exc).__name__}: {exc}",
                     )
                 )
-                done += 1
-                if on_progress:
-                    on_progress(done, total)
-                gc.collect()
-                continue
-            if outcome == "skipped":
-                summary.skipped_duplicate += 1
-            else:
-                summary.processed += 1
-                summary.processed_by_job[job.id] = summary.processed_by_job.get(job.id, 0) + 1
-                summary.processed_candidate_ids.append(cid)
-            done += 1
-            if on_progress:
-                on_progress(done, total)
-            # Reclaim per-CV memory (pdfplumber buffers, the base64 payload sent to
-            # Claude) before the next one, so peak RSS stays flat over a long pull.
-            gc.collect()
+        else:
+            with lock:
+                if outcome == "skipped":
+                    summary.skipped_duplicate += 1
+                else:
+                    summary.processed += 1
+                    summary.processed_by_job[job.id] = summary.processed_by_job.get(job.id, 0) + 1
+                    summary.processed_candidate_ids.append(cid)
+        finally:
+            shutil.rmtree(sub_dir, ignore_errors=True)
+            bump()
+            gc.collect()  # release per-CV buffers (pdfplumber + base64 payload)
+
+    try:
+        concurrency = get_ingest_concurrency()
+        if concurrency <= 1 or len(matched) <= 1:
+            for submission, job in matched:
+                _process(submission, job)
+        else:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=min(concurrency, len(matched))
+            ) as pool:
+                list(pool.map(lambda pair: _process(*pair), matched))
     finally:
         if tmp_ctx is not None:
             tmp_ctx.cleanup()
