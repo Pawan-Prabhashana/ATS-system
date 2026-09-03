@@ -320,7 +320,12 @@ def _ingest_one(
 
     # 2. Parse it (raises ValueError on a corrupt/non-PDF file). pdf_direct skips
     #    the poppler render entirely — text + hash only, no page images.
-    candidate, parsed_cv = parse_cv_file(cv_path, output_root=work_dir, render_images=not pdf_direct)
+    candidate, parsed_cv = parse_cv_file(
+        cv_path,
+        output_root=work_dir,
+        render_images=not pdf_direct,
+        extract_text_content=not pdf_direct,  # pdf_direct: Claude reads the PDF, skip pdfplumber
+    )
 
     file_hash = candidate.file_hash
     scoped_id = _scoped_candidate_id(effective_job_id, file_hash)
@@ -396,8 +401,13 @@ def add_candidate_from_upload(
         work_dir = Path(tmp)
         src = work_dir / (cv_filename or "cv.pdf")
         src.write_bytes(cv_bytes)
-        # Parse (raises ValueError on non-PDF); pdf_direct skips the poppler render.
-        candidate, parsed_cv = parse_cv_file(src, output_root=work_dir, render_images=not pdf_direct)
+        # Parse (raises ValueError on non-PDF); pdf_direct skips render + pdfplumber.
+        candidate, parsed_cv = parse_cv_file(
+            src,
+            output_root=work_dir,
+            render_images=not pdf_direct,
+            extract_text_content=not pdf_direct,
+        )
 
         file_hash = candidate.file_hash
         scoped_id = _scoped_candidate_id(job.id, file_hash)

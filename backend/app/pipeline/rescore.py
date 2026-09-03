@@ -67,6 +67,7 @@ def rescore_candidate(
             candidate_id=candidate_id,
             output_root=Path(tmp),
             render_images=not pdf_direct,
+            extract_text_content=not pdf_direct,
         )
         evaluation = evaluator.evaluate(
             parsed, job.job_description, job.rubric, pdf_bytes=(data if pdf_direct else None)

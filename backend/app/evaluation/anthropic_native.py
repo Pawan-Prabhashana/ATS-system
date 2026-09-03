@@ -26,6 +26,7 @@ from app.evaluation._response import build_evaluation
 from app.evaluation.errors import EvaluationError, EvaluatorConfigError
 from app.evaluation.images import encode_image_anthropic_block
 from app.evaluation.prompts import (
+    build_pdf_direct_user_text,
     build_retry_message,
     build_system_prompt,
     build_user_text,
@@ -135,7 +136,14 @@ class AnthropicEvaluator:
                     "data": base64.b64encode(pdf_bytes).decode("ascii"),
                 },
             }
-            text_block = {"type": "text", "text": build_user_text(parsed_cv.raw_text, include_images)}
+            # We no longer extract text for pdf_direct (saves memory) — the model
+            # reads the attached PDF itself. If some text is present (legacy path),
+            # include it; otherwise a PDF-aware instruction.
+            if parsed_cv.raw_text.strip():
+                user_text = build_user_text(parsed_cv.raw_text, include_images)
+            else:
+                user_text = build_pdf_direct_user_text(include_images)
+            text_block = {"type": "text", "text": user_text}
             # Document before the text, per Anthropic's PDF guidance.
             return system_prompt, [document_block, text_block]
 

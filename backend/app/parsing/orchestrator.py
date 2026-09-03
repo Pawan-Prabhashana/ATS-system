@@ -11,7 +11,7 @@ from app.models import (
     TextExtractionQuality,
 )
 from app.parsing.image_renderer import render_pages
-from app.parsing.text_extractor import extract_text
+from app.parsing.text_extractor import TextExtractionResult, extract_text
 
 PDF_MAGIC = b"%PDF-"
 
@@ -33,6 +33,7 @@ def parse_cv_bytes(
     candidate_id: str | None = None,
     output_root: Path | None = None,
     render_images: bool = True,
+    extract_text_content: bool = True,
 ) -> tuple[Candidate, ParsedCV]:
     """Parse a CV supplied as raw bytes.
 
@@ -65,6 +66,7 @@ def parse_cv_bytes(
         file_hash=file_hash,
         images_dir=candidate_dir / "pages",
         render_images=render_images,
+        extract_text_content=extract_text_content,
     )
 
 
@@ -74,6 +76,7 @@ def parse_cv_file(
     candidate_id: str | None = None,
     output_root: Path | None = None,
     render_images: bool = True,
+    extract_text_content: bool = True,
 ) -> tuple[Candidate, ParsedCV]:
     """Parse a CV from a filesystem path (used by the CLI)."""
     pdf_path = Path(pdf_path)
@@ -86,6 +89,7 @@ def parse_cv_file(
         candidate_id=candidate_id,
         output_root=output_root,
         render_images=render_images,
+        extract_text_content=extract_text_content,
     )
 
 
@@ -97,12 +101,19 @@ def _parse_pdf_at(
     file_hash: str,
     images_dir: Path,
     render_images: bool = True,
+    extract_text_content: bool = True,
 ) -> tuple[Candidate, ParsedCV]:
     warnings: list[str] = []
 
-    # 1. Text extraction (hard failure here means the file is unusable).
-    text_result = extract_text(pdf_path)
-    warnings.extend(text_result.warnings)
+    # 1. Text extraction (hard failure here means the file is unusable). In
+    #    pdf_direct mode Claude reads the PDF itself, so we SKIP pdfplumber
+    #    entirely — it's the heaviest per-CV memory cost (loads the whole PDF)
+    #    and would otherwise pile up over a big pull.
+    if extract_text_content:
+        text_result = extract_text(pdf_path)
+        warnings.extend(text_result.warnings)
+    else:
+        text_result = TextExtractionResult()
 
     # 2. Image rendering. A rendering failure should NOT lose the parsed text,
     #    so we degrade gracefully and record a warning instead of crashing.

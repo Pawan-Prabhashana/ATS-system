@@ -168,6 +168,26 @@ def build_user_text(parsed_cv_text: str, include_images: bool = False) -> str:
     )
 
 
+def build_pdf_direct_user_text(include_images: bool = False) -> str:
+    """User message when the CV is attached as a native PDF document (pdf_direct)
+    and no separate extracted text is provided — the model reads the PDF itself.
+    ``include_images`` here means the rubric wants visual/design assessment."""
+    if include_images:
+        return (
+            "The candidate's CV is attached as a PDF document. Read the ENTIRE "
+            "document carefully — both its text (skills, experience, wording) AND "
+            "its visual layout, typography, and formatting — and score it against "
+            "the rubric. Everything you need is in the attached PDF; do not treat "
+            "any section as missing."
+        )
+    return (
+        "The candidate's CV is attached as a PDF document. Read the ENTIRE "
+        "document carefully and score it against the rubric on content match. "
+        "Everything you need is in the attached PDF; do not treat any section as "
+        "missing."
+    )
+
+
 def dumps_compact(obj) -> str:
     """Helper for tests/logging: stable compact JSON."""
     return json.dumps(obj, separators=(",", ":"), sort_keys=True)
