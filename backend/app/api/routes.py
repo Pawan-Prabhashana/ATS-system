@@ -164,13 +164,13 @@ def create_job(body: JobCreateRequest) -> Job:
         status=body.status or JobStatus.open,
     )
     created = repo.add(job)
-    # Auto-pull: as soon as a role is set up, start pulling + scoring its
+    # Auto-pull: as soon as a role is set up, start pulling + scoring THIS job's
     # applicants in the background so they're ready without a manual pull. Only
     # when the live Google intake is configured; best-effort (never blocks or
-    # fails job creation). Poll GET /ingest/progress to watch it.
+    # fails job creation). Poll GET /jobs/{id}/pull/progress to watch it.
     if get_intake_mode() == "google":
         try:
-            start_site_ingestion()
+            start_job_ingestion(created.id)
         except Exception:  # noqa: BLE001 - job creation must still succeed
             pass
     return created
@@ -569,6 +569,15 @@ def get_candidate_cv(candidate_id: str):
     if record is None:
         raise HTTPException(status_code=404, detail=f"Candidate {candidate_id!r} not found.")
     filename = record.candidate.cv_filename or "cv.pdf"
+
+    # Stored PDF bytes win (manual upload, or an image CV we converted to PDF) —
+    # the Drive original may be a .jpg, so prefer the converted copy.
+    if record.candidate.cv_data:
+        return StreamingResponse(
+            io.BytesIO(record.candidate.cv_data),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        )
 
     drive_id = record.candidate.cv_drive_file_id
     if drive_id:

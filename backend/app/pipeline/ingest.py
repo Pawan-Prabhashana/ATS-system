@@ -52,6 +52,29 @@ def _require_pdf_direct_supported(evaluator: Evaluator) -> None:
         )
 
 
+def _ensure_pdf(cv_path: Path) -> tuple[Path, bool]:
+    """Return a PDF path for the CV. Some applicants upload an IMAGE (a photo /
+    screenshot of their CV) instead of a PDF — convert those to a one-page PDF so
+    they can still be scored (Claude reads the image via the PDF). Returns
+    ``(pdf_path, was_converted)``; raises ValueError if it's neither PDF nor a
+    readable image."""
+    with cv_path.open("rb") as fh:
+        head = fh.read(5)
+    if head == b"%PDF-":
+        return cv_path, False
+    try:
+        from PIL import Image
+
+        pdf_path = cv_path.with_name(cv_path.stem + "_converted.pdf")
+        with Image.open(cv_path) as im:
+            im.convert("RGB").save(str(pdf_path), "PDF", resolution=150)
+        return pdf_path, True
+    except Exception as exc:  # noqa: BLE001 - genuinely unsupported file
+        raise ValueError(
+            f"'{cv_path.name}' is not a PDF and could not be read as an image CV: {exc}"
+        ) from exc
+
+
 def build_intake_source_for_job(job: Job) -> IntakeSource:
     """Pick the intake source FROM THE JOB, not the global env.
 
@@ -231,7 +254,26 @@ def run_site_ingestion(
         else:
             matched.append((submission, job))
 
+    # Pre-download dedup: the Drive file ids already ingested per job, so a
+    # RE-PULL skips them WITHOUT re-downloading or re-scoring (only genuinely new
+    # applicants are processed). Built once up front.
+    done_drive_ids: dict[str, set] = {}
+    for _sub, job in matched:
+        if job.id not in done_drive_ids:
+            done_drive_ids[job.id] = {
+                rec.candidate.cv_drive_file_id
+                for rec in store.list_by_job(job.id)
+                if rec.candidate.cv_drive_file_id
+            }
+
     def _process(submission: RawSubmission, job: Job) -> None:
+        # Already ingested on a previous pull? Skip without touching Drive/Claude.
+        ref = submission.cv_file_ref
+        if ref and ref in done_drive_ids.get(job.id, ()):
+            with lock:
+                summary.skipped_duplicate += 1
+            bump()
+            return
         # A unique subdir per CV so concurrent downloads never collide on filename.
         sub_dir = work_dir / uuid.uuid4().hex
         sub_dir.mkdir(parents=True, exist_ok=True)
@@ -318,6 +360,10 @@ def _ingest_one(
             "— skipped to protect memory (raise MAX_CV_MB on a larger instance)."
         )
 
+    # 1c. If the applicant uploaded an image instead of a PDF, convert it so it
+    #     can still be scored (and stored so the viewer works).
+    cv_path, was_image = _ensure_pdf(cv_path)
+
     # 2. Parse it (raises ValueError on a corrupt/non-PDF file). pdf_direct skips
     #    the poppler render entirely — text + hash only, no page images.
     candidate, parsed_cv = parse_cv_file(
@@ -342,20 +388,24 @@ def _ingest_one(
 
     # 5. Attach identity + job scoping; adopt the scoped id everywhere. Record the
     #    Drive origin (google source) so the PDF viewer can fetch it on demand.
-    cv_drive_file_id = (
-        submission.cv_file_ref if getattr(intake_source, "name", "") == "google_forms" else None
-    )
-    candidate = candidate.model_copy(
-        update={
-            "id": scoped_id,
-            "name": submission.name,
-            "email": submission.email,
-            "job_id": effective_job_id,
-            "cv_drive_file_id": cv_drive_file_id,
-            "portfolio_url": submission.portfolio_url,
-            "status": CandidateStatus.parsed,
-        }
-    )
+    #    For a converted image, the Drive file is a .jpg (not a PDF), so instead
+    #    store the converted PDF bytes and DON'T point the viewer at Drive.
+    is_google = getattr(intake_source, "name", "") == "google_forms"
+    update = {
+        "id": scoped_id,
+        "name": submission.name,
+        "email": submission.email,
+        "job_id": effective_job_id,
+        # Keep the Drive id (so a re-pull's pre-download dedup skips it); for a
+        # converted image the Drive file is a .jpg, so we ALSO store the converted
+        # PDF and the viewer prefers that.
+        "cv_drive_file_id": (submission.cv_file_ref if is_google else None),
+        "portfolio_url": submission.portfolio_url,
+        "status": CandidateStatus.parsed,
+    }
+    if was_image:
+        update["cv_data"] = cv_path.read_bytes()  # converted PDF -> viewer works
+    candidate = candidate.model_copy(update=update)
     parsed_cv = parsed_cv.model_copy(update={"candidate_id": scoped_id})
 
     # 6. Evaluate, mark scored, persist the record. In pdf_direct the PDF bytes

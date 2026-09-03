@@ -9,6 +9,7 @@ import {
   getJobRescoreProgress,
   getJobSummary,
   listJobCandidates,
+  listRoles,
   startJobPull,
   startJobRescore,
   type CandidateRecord,
@@ -55,6 +56,7 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
   const [progress, setProgress] = useState<{ processed: number; total: number } | null>(null);
   const [rescoring, setRescoring] = useState(false);
   const [rescoreProgress, setRescoreProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [roleCount, setRoleCount] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -78,6 +80,14 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
         setJob(j);
         setSummary(s);
         setAll(rows);
+        // How many applicants on the form picked this role (so the user knows the
+        // size before a manual pull). Best-effort — reads the sheet, may be slow.
+        listRoles()
+          .then((roles) => {
+            const match = roles.find((r) => r.role === j.role_key);
+            setRoleCount(match ? match.applicant_count : null);
+          })
+          .catch(() => setRoleCount(null));
       } catch (e) {
         setError(e instanceof Error ? e.message : "Couldn't load this job.");
         setAll([]);
@@ -215,12 +225,21 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
                 <Stat label="Sent" value={summary.by_status.assignment_sent} />
               </div>
               <div className="mt-3 space-y-2 border-t border-line pt-3">
+                {roleCount !== null && (
+                  <p className="text-[11px] leading-snug text-muted">
+                    <span className="font-semibold text-ink">{roleCount}</span> applicant{roleCount === 1 ? "" : "s"} picked this role on the form
+                    {summary.total > 0 ? ` · ${summary.total} scored so far` : ""}.
+                    {roleCount > summary.total ? ` Pull scores the ${roleCount - summary.total} new one${roleCount - summary.total === 1 ? "" : "s"}.` : " All caught up."}
+                  </p>
+                )}
                 <Button size="sm" variant="secondary" loading={ingesting} onClick={onIngest} className="w-full">
                   {ingesting
                     ? progress && progress.total
                       ? `Pulling ${progress.processed} of ${progress.total}…`
                       : "Starting…"
-                    : "Pull applicants"}
+                    : roleCount !== null
+                      ? `Pull applicants (${roleCount})`
+                      : "Pull applicants"}
                 </Button>
                 <Button size="sm" variant="ghost" loading={rescoring} onClick={onRescoreAll} className="w-full">
                   {rescoring
