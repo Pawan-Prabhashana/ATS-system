@@ -53,6 +53,7 @@ from app.pipeline.assignment import (
 )
 from app.store import CandidateRecord
 from app.store.chat_store import get_chat_store
+from app.store.skip_store import skipped_count
 from app.transcribe import TranscribeConfigError, TranscribeError, transcribe_audio
 from app.store.factory import get_candidate_store, get_job_repository
 
@@ -272,6 +273,13 @@ def job_pull_start(job_id: str) -> dict:
 @router.get("/jobs/{job_id}/pull/progress")
 def job_pull_progress(job_id: str) -> dict:
     return job_ingestion_progress(job_id)
+
+
+@router.get("/jobs/{job_id}/skipped")
+def job_skipped(job_id: str) -> dict:
+    """How many of this job's applicants are unscoreable (bad/corrupt/image
+    uploads) and permanently skipped — so the UI can exclude them from 'to pull'."""
+    return {"count": skipped_count(job_id)}
 
 
 class RoleInfo(BaseModel):

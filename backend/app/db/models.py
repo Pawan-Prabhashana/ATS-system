@@ -116,6 +116,23 @@ class UserRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class IngestSkipRow(Base):
+    """A form submission that can't be scored (non-PDF/corrupt/unreadable upload).
+    Recorded so a re-pull skips it instead of re-attempting (and re-crashing) it."""
+
+    __tablename__ = "ingest_skips"
+    __table_args__ = (
+        UniqueConstraint("job_id", "drive_file_id", name="uq_ingest_skips_job_file"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    drive_file_id: Mapped[str] = mapped_column(String, nullable=False)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class ChatMessageRow(Base):
     """One team-chat message. Monotonic integer id doubles as the poll cursor."""
 

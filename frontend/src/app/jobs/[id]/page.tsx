@@ -7,6 +7,7 @@ import {
   getJob,
   getJobPullProgress,
   getJobRescoreProgress,
+  getJobSkipped,
   getJobSummary,
   listJobCandidates,
   listRoles,
@@ -57,6 +58,7 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
   const [rescoring, setRescoring] = useState(false);
   const [rescoreProgress, setRescoreProgress] = useState<{ processed: number; total: number } | null>(null);
   const [roleCount, setRoleCount] = useState<number | null>(null);
+  const [skippedCount, setSkippedCount] = useState(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -88,6 +90,9 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
             setRoleCount(match ? match.applicant_count : null);
           })
           .catch(() => setRoleCount(null));
+        getJobSkipped(id)
+          .then((s) => setSkippedCount(s.count))
+          .catch(() => setSkippedCount(0));
       } catch (e) {
         setError(e instanceof Error ? e.message : "Couldn't load this job.");
         setAll([]);
@@ -225,20 +230,24 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
                 <Stat label="Sent" value={summary.by_status.assignment_sent} />
               </div>
               <div className="mt-3 space-y-2 border-t border-line pt-3">
-                {roleCount !== null && (
-                  <p className="text-[11px] leading-snug text-muted">
-                    <span className="font-semibold text-ink">{roleCount}</span> applicant{roleCount === 1 ? "" : "s"} picked this role on the form
-                    {summary.total > 0 ? ` · ${summary.total} scored so far` : ""}.
-                    {roleCount > summary.total ? ` Pull scores the ${roleCount - summary.total} new one${roleCount - summary.total === 1 ? "" : "s"}.` : " All caught up."}
-                  </p>
-                )}
+                {roleCount !== null && (() => {
+                  const toPull = Math.max(0, roleCount - summary.total - skippedCount);
+                  return (
+                    <p className="text-[11px] leading-snug text-muted">
+                      <span className="font-semibold text-ink">{roleCount}</span> applicant{roleCount === 1 ? "" : "s"} picked this role
+                      {summary.total > 0 ? ` · ${summary.total} scored` : ""}
+                      {skippedCount > 0 ? ` · ${skippedCount} unreadable (skipped)` : ""}.
+                      {toPull > 0 ? ` Pull scores the ${toPull} new one${toPull === 1 ? "" : "s"}.` : " All caught up."}
+                    </p>
+                  );
+                })()}
                 <Button size="sm" variant="secondary" loading={ingesting} onClick={onIngest} className="w-full">
                   {ingesting
                     ? progress && progress.total
                       ? `Pulling ${progress.processed} of ${progress.total}…`
                       : "Starting…"
                     : roleCount !== null
-                      ? `Pull applicants (${roleCount})`
+                      ? `Pull applicants (${Math.max(0, roleCount - summary.total - skippedCount)} new)`
                       : "Pull applicants"}
                 </Button>
                 <Button size="sm" variant="ghost" loading={rescoring} onClick={onRescoreAll} className="w-full">

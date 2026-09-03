@@ -518,6 +518,12 @@ export function getJobPullProgress(jobId: string): Promise<TaskProgress> {
   return request<TaskProgress>(`/jobs/${encodeURIComponent(jobId)}/pull/progress`);
 }
 
+/** How many of a job's applicants are unscoreable (bad/image uploads), skipped. */
+export function getJobSkipped(jobId: string): Promise<{ count: number }> {
+  if (DEMO_MODE) return demoCall(() => ({ count: 0 }));
+  return request<{ count: number }>(`/jobs/${encodeURIComponent(jobId)}/skipped`);
+}
+
 /** Re-score one candidate against its job's current rubric. */
 export function rescoreCandidate(id: string): Promise<CandidateDetail> {
   if (DEMO_MODE) return demoCall(() => demo.demoGetCandidate(id));

@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from app.config import get_cv_mode, get_ingest_concurrency, get_max_cv_mb, settings
 from app.evaluation import get_evaluator
 from app.evaluation.base import Evaluator
-from app.evaluation.errors import EvaluatorConfigError
+from app.evaluation.errors import EvaluationError, EvaluatorConfigError
 from app.intake.base import IntakeSource, RawSubmission
 from app.intake.factory import get_intake_source
 from app.intake.local_fixture import LocalFixtureIntakeSource
@@ -24,6 +24,7 @@ from app.models import CandidateStatus, Job, ParsedCV, Rubric
 from app.parsing import parse_cv_file
 from app.store.base import CandidateRepository
 from app.store.factory import get_candidate_store
+from app.store.skip_store import record_skip, skipped_drive_ids
 
 # Stable per-candidate artifact layout (served at /media/candidates/<id>/...).
 CANDIDATES_SUBDIR = "candidates"
@@ -67,10 +68,14 @@ def _ensure_pdf(cv_path: Path) -> tuple[Path, bool]:
 
         pdf_path = cv_path.with_name(cv_path.stem + "_converted.pdf")
         with Image.open(cv_path) as im:
+            # Decode at a REDUCED size (JPEG) so a huge phone photo never
+            # decompresses into hundreds of MB and OOMs the instance.
+            try:
+                im.draft("RGB", (1600, 1600))
+            except Exception:  # noqa: BLE001 - draft is a best-effort hint
+                pass
             rgb = im.convert("RGB")
-            # Cap dimensions so a high-res phone photo doesn't decompress into
-            # hundreds of MB — 2000px is still very readable for scoring.
-            rgb.thumbnail((2000, 2000))
+            rgb.thumbnail((1600, 1600))  # cap final dimensions; still readable
             rgb.save(str(pdf_path), "PDF", resolution=150)
         return pdf_path, True
     except Exception as exc:  # noqa: BLE001 - genuinely unsupported file
@@ -264,7 +269,8 @@ def run_site_ingestion(
     done_drive_ids: dict[str, set] = {}
     for _sub, job in matched:
         if job.id not in done_drive_ids:
-            done_drive_ids[job.id] = store.ingested_drive_ids(job.id)
+            # Skip both the already-scored AND the known-bad (unscoreable) uploads.
+            done_drive_ids[job.id] = store.ingested_drive_ids(job.id) | skipped_drive_ids(job.id)
 
     def _process(submission: RawSubmission, job: Job) -> None:
         # Already ingested on a previous pull? Skip without touching Drive/Claude.
@@ -298,6 +304,12 @@ def run_site_ingestion(
                         reason=f"{type(exc).__name__}: {exc}",
                     )
                 )
+            # Permanently skip genuinely unscoreable uploads (bad/corrupt/non-PDF
+            # image, or the model couldn't read it) so we don't retry — and OOM —
+            # on them every pull. Not for config errors (those are systemic).
+            ref = submission.cv_file_ref
+            if ref and isinstance(exc, (ValueError, EvaluationError)) and not isinstance(exc, EvaluatorConfigError):
+                record_skip(job.id, ref, name=submission.name, reason=f"{type(exc).__name__}: {exc}")
         else:
             with lock:
                 if outcome == "skipped":
