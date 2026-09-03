@@ -172,6 +172,7 @@ def run_site_ingestion(
     evaluator: Evaluator | None = None,
     work_dir: str | Path | None = None,
     on_progress: "Callable[[int, int], None] | None" = None,
+    restrict_role: str | None = None,
 ) -> SiteIngestionSummary:
     """Pull ALL new rows from the single site form and route each to the job
     whose ``role_key`` matches the row's ``role`` EXACTLY (never a fuzzy/AI
@@ -187,6 +188,11 @@ def run_site_ingestion(
     by_role = {j.role_key: j for j in jobs if j.role_key}
     summary = SiteIngestionSummary()
     submissions = intake_source.fetch_new_submissions()
+    if restrict_role is not None:
+        # Per-job pull: only the applicants who picked THIS role — so we download
+        # + score just those, not the whole form. Much less work + memory.
+        want = restrict_role.strip()
+        submissions = [s for s in submissions if (s.role or "").strip() == want]
     total = len(submissions)
     lock = threading.Lock()
     done = 0

@@ -4,12 +4,12 @@ import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   DEMO_MODE,
-  getIngestProgress,
   getJob,
+  getJobPullProgress,
   getJobRescoreProgress,
   getJobSummary,
   listJobCandidates,
-  startIngest,
+  startJobPull,
   startJobRescore,
   type CandidateRecord,
   type Job,
@@ -104,11 +104,12 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
     setIngestResult(null);
     setProgress(null);
     try {
-      let snap = await startIngest();
+      // Per-job pull: only this job's applicants are downloaded + scored.
+      let snap = await startJobPull(id);
       while (snap.status === "running") {
         setProgress({ processed: snap.processed ?? 0, total: snap.total ?? 0 });
         await new Promise((r) => setTimeout(r, 2000));
-        snap = await getIngestProgress();
+        snap = await getJobPullProgress(id);
       }
       if (snap.status === "error") setError(snap.error || "Pull failed. Try again.");
       else if (snap.summary) setIngestResult(snap.summary as SiteIngestionSummary);

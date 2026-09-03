@@ -35,7 +35,9 @@ from app.pipeline import (
 )
 from app.pipeline.background import (
     ingestion_progress,
+    job_ingestion_progress,
     rescore_progress,
+    start_job_ingestion,
     start_job_rescore,
     start_site_ingestion,
 )
@@ -255,6 +257,21 @@ def site_ingest_start() -> dict:
 def site_ingest_progress() -> dict:
     """Live progress of the background pull: status, processed, total, summary."""
     return ingestion_progress()
+
+
+@router.post("/jobs/{job_id}/pull/start")
+def job_pull_start(job_id: str) -> dict:
+    """Start a BACKGROUND pull for ONE job — downloads + scores only the
+    applicants who picked that job's role (not the whole form). Poll
+    ``GET /jobs/{job_id}/pull/progress``."""
+    if get_job_repository().get(job_id) is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
+    return start_job_ingestion(job_id)
+
+
+@router.get("/jobs/{job_id}/pull/progress")
+def job_pull_progress(job_id: str) -> dict:
+    return job_ingestion_progress(job_id)
 
 
 class RoleInfo(BaseModel):

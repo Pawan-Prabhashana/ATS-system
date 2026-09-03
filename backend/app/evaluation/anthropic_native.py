@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
 import time
 from typing import Any, Optional
 
@@ -42,9 +43,28 @@ class AnthropicEvaluator:
     name = "anthropic"
 
     def __init__(self, *, client: Any | None = None, model: str | None = None) -> None:
-        # Allow injecting a client for tests; otherwise built lazily at call time.
+        # Allow injecting a client for tests; otherwise built once and REUSED
+        # across calls/threads. Building a fresh anthropic.Anthropic() per CV
+        # leaks its httpx connection pool — over a long pull that piles up and
+        # OOMs the instance. One shared client (httpx is thread-safe) fixes it.
         self._injected_client = client
         self._model_override = model
+        self._client: Any | None = None
+        self._client_lock = threading.Lock()
+
+    def _get_client(self, api_key: str):
+        if self._injected_client is not None:
+            return self._injected_client
+        if self._client is None:
+            with self._client_lock:
+                if self._client is None:
+                    anthropic = _import_anthropic()
+                    self._client = anthropic.Anthropic(
+                        api_key=api_key,
+                        timeout=settings.eval_request_timeout_s,
+                        max_retries=0,  # we run our own retry loop below
+                    )
+        return self._client
 
     # -- public API -------------------------------------------------------- #
     def evaluate(
@@ -142,11 +162,7 @@ class AnthropicEvaluator:
         model: str,
     ) -> str:
         anthropic = _import_anthropic()
-        client = self._injected_client or anthropic.Anthropic(
-            api_key=api_key,
-            timeout=settings.eval_request_timeout_s,
-            max_retries=0,  # we run our own retry loop below
-        )
+        client = self._get_client(api_key)
 
         attempts = max(1, settings.eval_max_network_attempts)
         last_exc: Exception | None = None

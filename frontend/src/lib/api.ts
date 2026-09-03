@@ -507,6 +507,17 @@ export function getIngestProgress(): Promise<TaskProgress> {
   return request<TaskProgress>("/ingest/progress");
 }
 
+/** Start a background pull for ONE job (only that role's applicants). */
+export function startJobPull(jobId: string): Promise<TaskProgress> {
+  if (DEMO_MODE) return demoCall(() => ({ status: "done", summary: demo.demoSiteIngest() }) as TaskProgress);
+  return request<TaskProgress>(`/jobs/${encodeURIComponent(jobId)}/pull/start`, { method: "POST" });
+}
+
+export function getJobPullProgress(jobId: string): Promise<TaskProgress> {
+  if (DEMO_MODE) return demoCall(() => ({ status: "idle" }) as TaskProgress);
+  return request<TaskProgress>(`/jobs/${encodeURIComponent(jobId)}/pull/progress`);
+}
+
 /** Re-score one candidate against its job's current rubric. */
 export function rescoreCandidate(id: string): Promise<CandidateDetail> {
   if (DEMO_MODE) return demoCall(() => demo.demoGetCandidate(id));

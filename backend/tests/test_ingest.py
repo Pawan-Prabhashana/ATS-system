@@ -38,6 +38,22 @@ def _jobs(jd, rubric):
     ]
 
 
+def test_per_job_pull_scores_only_that_role(store, jd_and_rubric):
+    jd, rubric = jd_and_rubric
+    # restrict_role -> only that role's applicants are processed (others aren't
+    # even read/held). Backend Engineer has 3 in the fixture.
+    summary = run_site_ingestion(
+        _jobs(jd, rubric),
+        intake_source=LocalFixtureIntakeSource(),
+        store=store,
+        restrict_role="Backend Engineer",
+    )
+    assert summary.processed == 3
+    assert summary.processed_by_job == {"backend-engineer": 3}
+    assert summary.held_total == 0  # Graphic Design Intern + Motion Designer skipped
+    assert len(store.list_all()) == 3
+
+
 def test_site_ingestion_routes_by_role(store, jd_and_rubric):
     jd, rubric = jd_and_rubric
     summary = run_site_ingestion(_jobs(jd, rubric), intake_source=LocalFixtureIntakeSource(), store=store)

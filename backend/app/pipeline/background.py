@@ -43,6 +43,40 @@ def ingestion_progress() -> dict:
     return snapshot(INGEST_KEY) or {"status": "idle"}
 
 
+def job_ingest_key(job_id: str) -> str:
+    return f"ingest:job:{job_id}"
+
+
+def start_job_ingestion(job_id: str) -> dict:
+    """Start (or return the in-progress) background pull for ONE job — only the
+    applicants who picked that job's role are downloaded + scored."""
+    key = job_ingest_key(job_id)
+    if not try_start(key, "ingest"):
+        return snapshot(key) or {"status": "running"}
+
+    def run() -> None:
+        try:
+            job = get_job_repository().get(job_id)
+            if job is None:
+                finish(key, error=f"Job {job_id!r} not found.")
+                return
+            summary = run_site_ingestion(
+                [job],
+                restrict_role=job.role_key,
+                on_progress=lambda d, t: report(key, d, t),
+            )
+            finish(key, summary=summary.model_dump())
+        except Exception as exc:  # noqa: BLE001
+            finish(key, error=f"{type(exc).__name__}: {exc}")
+
+    _spawn(run)
+    return snapshot(key) or {"status": "running"}
+
+
+def job_ingestion_progress(job_id: str) -> dict:
+    return snapshot(job_ingest_key(job_id)) or {"status": "idle"}
+
+
 def rescore_key(job_id: str) -> str:
     return f"rescore:{job_id}"
 
