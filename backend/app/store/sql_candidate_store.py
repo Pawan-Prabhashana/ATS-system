@@ -197,6 +197,18 @@ class SQLCandidateStore:
             row.cv_file = record.cv_file
             row.page_image_files = list(record.page_image_files or [])
 
+    def ingested_drive_ids(self, job_id: str) -> set[str]:
+        from sqlalchemy import select
+
+        with self._scope() as s:
+            rows = s.execute(
+                select(CandidateRow.cv_drive_file_id).where(
+                    CandidateRow.job_id == job_id,
+                    CandidateRow.cv_drive_file_id.isnot(None),
+                )
+            ).all()
+        return {r[0] for r in rows}
+
     def update_status(self, candidate_id: str, status: CandidateStatus) -> None:
         with self._scope() as s:
             row = s.get(CandidateRow, candidate_id)

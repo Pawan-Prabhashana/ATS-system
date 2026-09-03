@@ -87,6 +87,11 @@ class CandidateRepository(Protocol):
         """Update just the status of a stored candidate."""
         ...
 
+    def ingested_drive_ids(self, job_id: str) -> set[str]:
+        """The Drive file ids already ingested under ``job_id`` (lightweight —
+        no evaluations loaded), for pre-download dedup on a re-pull."""
+        ...
+
     def update_decision(
         self,
         candidate_id: str,

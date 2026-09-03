@@ -116,6 +116,13 @@ class JSONCandidateStore:
             )
             self._write(records)
 
+    def ingested_drive_ids(self, job_id: str) -> set[str]:
+        return {
+            r.candidate.cv_drive_file_id
+            for r in self._load().values()
+            if r.candidate.job_id == job_id and r.candidate.cv_drive_file_id
+        }
+
     def update_status(self, candidate_id: str, status: CandidateStatus) -> None:
         with self._lock:
             records = self._load()

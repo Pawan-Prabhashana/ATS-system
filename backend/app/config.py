@@ -134,9 +134,9 @@ def get_ingest_concurrency() -> int:
     parallelism uses more memory, though — keep it modest on a small instance
     (2-4 on 512 MB) and raise it (8+) on a larger one. Tune via ``INGEST_CONCURRENCY``."""
     try:
-        return max(1, min(16, int(os.getenv("INGEST_CONCURRENCY", "3"))))
+        return max(1, min(16, int(os.getenv("INGEST_CONCURRENCY", "2"))))
     except ValueError:
-        return 3
+        return 2
 
 
 def get_max_cv_mb() -> float:
@@ -145,9 +145,9 @@ def get_max_cv_mb() -> float:
     the whole pull; over-limit CVs are recorded as a failure instead. Tune via
     ``MAX_CV_MB`` (raise it on a larger instance)."""
     try:
-        return float(os.getenv("MAX_CV_MB", "20"))
+        return float(os.getenv("MAX_CV_MB", "12"))
     except ValueError:
-        return 20.0
+        return 12.0
 
 
 def get_cv_mode() -> str:

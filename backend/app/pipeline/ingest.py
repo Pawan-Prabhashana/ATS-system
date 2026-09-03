@@ -67,7 +67,11 @@ def _ensure_pdf(cv_path: Path) -> tuple[Path, bool]:
 
         pdf_path = cv_path.with_name(cv_path.stem + "_converted.pdf")
         with Image.open(cv_path) as im:
-            im.convert("RGB").save(str(pdf_path), "PDF", resolution=150)
+            rgb = im.convert("RGB")
+            # Cap dimensions so a high-res phone photo doesn't decompress into
+            # hundreds of MB — 2000px is still very readable for scoring.
+            rgb.thumbnail((2000, 2000))
+            rgb.save(str(pdf_path), "PDF", resolution=150)
         return pdf_path, True
     except Exception as exc:  # noqa: BLE001 - genuinely unsupported file
         raise ValueError(
@@ -260,11 +264,7 @@ def run_site_ingestion(
     done_drive_ids: dict[str, set] = {}
     for _sub, job in matched:
         if job.id not in done_drive_ids:
-            done_drive_ids[job.id] = {
-                rec.candidate.cv_drive_file_id
-                for rec in store.list_by_job(job.id)
-                if rec.candidate.cv_drive_file_id
-            }
+            done_drive_ids[job.id] = store.ingested_drive_ids(job.id)
 
     def _process(submission: RawSubmission, job: Job) -> None:
         # Already ingested on a previous pull? Skip without touching Drive/Claude.
