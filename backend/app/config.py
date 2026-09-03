@@ -128,6 +128,17 @@ def get_google_sheet_tab() -> str | None:
     return v or None
 
 
+def get_max_cv_mb() -> float:
+    """Skip CVs larger than this (MB) during a pull. A single very large PDF
+    (design portfolios) can blow the memory limit on a small instance and crash
+    the whole pull; over-limit CVs are recorded as a failure instead. Tune via
+    ``MAX_CV_MB`` (raise it on a larger instance)."""
+    try:
+        return float(os.getenv("MAX_CV_MB", "20"))
+    except ValueError:
+        return 20.0
+
+
 def get_cv_mode() -> str:
     """How CVs are handled for scoring + viewing (Phase 16+):
       - ``pdf_direct`` (default since Phase 17): send the PDF straight to Claude

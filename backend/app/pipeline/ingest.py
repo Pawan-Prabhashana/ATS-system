@@ -1,6 +1,7 @@
 """Ingestion pipeline: intake -> parse -> dedup -> evaluate -> store."""
 from __future__ import annotations
 
+import gc
 import hashlib
 import shutil
 import tempfile
@@ -9,7 +10,7 @@ from typing import Callable, Optional
 
 from pydantic import BaseModel, Field
 
-from app.config import get_cv_mode, settings
+from app.config import get_cv_mode, get_max_cv_mb, settings
 from app.evaluation import get_evaluator
 from app.evaluation.base import Evaluator
 from app.evaluation.errors import EvaluatorConfigError
@@ -229,6 +230,7 @@ def run_site_ingestion(
                 done += 1
                 if on_progress:
                     on_progress(done, total)
+                gc.collect()
                 continue
             if outcome == "skipped":
                 summary.skipped_duplicate += 1
@@ -239,6 +241,9 @@ def run_site_ingestion(
             done += 1
             if on_progress:
                 on_progress(done, total)
+            # Reclaim per-CV memory (pdfplumber buffers, the base64 payload sent to
+            # Claude) before the next one, so peak RSS stays flat over a long pull.
+            gc.collect()
     finally:
         if tmp_ctx is not None:
             tmp_ctx.cleanup()
@@ -267,6 +272,16 @@ def _ingest_one(
 
     # 1. Download the CV into the (temporary) working dir.
     cv_path = intake_source.download_cv(submission, work_dir)
+
+    # 1b. Guard against a single huge PDF OOM-ing the instance mid-pull: over the
+    #     limit -> raise, recorded as a failure so the rest of the batch continues.
+    size_mb = cv_path.stat().st_size / (1024 * 1024)
+    max_mb = get_max_cv_mb()
+    if size_mb > max_mb:
+        raise ValueError(
+            f"CV is {size_mb:.0f} MB, over the {max_mb:.0f} MB limit for this instance "
+            "— skipped to protect memory (raise MAX_CV_MB on a larger instance)."
+        )
 
     # 2. Parse it (raises ValueError on a corrupt/non-PDF file). pdf_direct skips
     #    the poppler render entirely — text + hash only, no page images.
