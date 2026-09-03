@@ -56,6 +56,7 @@ export interface Me {
   authenticated: boolean;
   username: string | null;
   full_name: string | null;
+  is_admin: boolean;
   auth_enabled: boolean;
 }
 

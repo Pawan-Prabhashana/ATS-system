@@ -58,6 +58,7 @@ class MeResponse(BaseModel):
     authenticated: bool
     username: Optional[str] = None
     full_name: Optional[str] = None
+    is_admin: bool = False
     auth_enabled: bool = True
 
 
@@ -75,7 +76,9 @@ def _require_secret() -> str:
     return secret
 
 
-def create_access_token(username: str, full_name: Optional[str] = None) -> tuple[str, datetime]:
+def create_access_token(
+    username: str, full_name: Optional[str] = None, is_admin: bool = False
+) -> tuple[str, datetime]:
     secret = _require_secret()
     now = datetime.now(timezone.utc)
     expires = now + timedelta(hours=get_auth_token_ttl_hours())
@@ -84,6 +87,7 @@ def create_access_token(username: str, full_name: Optional[str] = None) -> tuple
         # Full display name, carried in the token so attribution ("Shortlisted by
         # Abdul") and the assignment email's signature need no DB lookup per call.
         "name": full_name or username,
+        "adm": bool(is_admin),
         "type": _TOKEN_TYPE,
         "iat": int(now.timestamp()),
         "exp": int(expires.timestamp()),
@@ -98,17 +102,24 @@ def decode_token(token: str) -> dict:
 
 
 def authenticate(username: str, password: str) -> Optional[dict]:
-    """Return ``{"username", "full_name"}`` for valid credentials, else None.
+    """Return ``{"username", "full_name", "is_admin"}`` for valid credentials,
+    else None.
 
-    Checks the individual reviewer accounts first (multi-user, DB-backed on
-    Postgres); falls back to the single env admin account (APP_AUTH_USERNAME /
-    APP_AUTH_PASSWORD) so local dev and the break-glass admin keep working.
+    Individual reviewer accounts (DB-backed on Postgres) are the source of truth.
+    The env admin account (APP_AUTH_USERNAME / APP_AUTH_PASSWORD) is a LOCAL/DEV
+    fallback only — it is disabled on the Postgres backend so the real deployment
+    has exactly the provisioned reviewer accounts and no shared 'admin' login.
     """
+    from app.config import get_store_backend
     from app.users import get_user, verify_password
 
     user = get_user(username)
     if user is not None and user.active and verify_password(password, user.password_hash):
-        return {"username": user.username, "full_name": user.full_name}
+        return {"username": user.username, "full_name": user.full_name, "is_admin": user.is_admin}
+
+    # Production (Postgres): DB accounts only — no env-admin login.
+    if get_store_backend() == "postgres":
+        return None
 
     expected_user = get_app_auth_username()
     expected_pass = get_app_auth_password()
@@ -118,7 +129,7 @@ def authenticate(username: str, password: str) -> Optional[dict]:
     user_ok = hmac.compare_digest(username or "", expected_user or "")
     pass_ok = hmac.compare_digest(password or "", expected_pass or "")
     if user_ok and pass_ok:
-        return {"username": expected_user, "full_name": expected_user}
+        return {"username": expected_user, "full_name": expected_user, "is_admin": True}
     return None
 
 
@@ -146,7 +157,7 @@ def require_auth(request: Request) -> dict:
     """
     if not get_auth_enabled():
         name = get_app_auth_username()
-        return {"sub": name, "name": name, "auth_disabled": True}
+        return {"sub": name, "name": name, "adm": True, "auth_disabled": True}
 
     token = _bearer_token(request)
     if not token:
@@ -177,7 +188,11 @@ def current_user(payload: dict = Depends(require_auth)) -> dict:
     shortlist/reject/assignment to a person.
     """
     username = payload.get("sub") or ""
-    return {"username": username, "full_name": payload.get("name") or username}
+    return {
+        "username": username,
+        "full_name": payload.get("name") or username,
+        "is_admin": bool(payload.get("adm")),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -195,7 +210,9 @@ def login(body: LoginRequest) -> LoginResponse:
     if principal is None:
         raise HTTPException(status_code=401, detail="Incorrect username or password.")
     try:
-        token, expires = create_access_token(principal["username"], principal["full_name"])
+        token, expires = create_access_token(
+            principal["username"], principal["full_name"], principal.get("is_admin", False)
+        )
     except AuthConfigError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     return LoginResponse(
@@ -217,7 +234,7 @@ def me(request: Request) -> MeResponse:
     """Report whether the current session is valid. Never 401s — it's a probe."""
     if not get_auth_enabled():
         name = get_app_auth_username()
-        return MeResponse(authenticated=True, username=name, full_name=name, auth_enabled=False)
+        return MeResponse(authenticated=True, username=name, full_name=name, is_admin=True, auth_enabled=False)
     token = _bearer_token(request)
     if not token:
         return MeResponse(authenticated=False, auth_enabled=True)
@@ -229,5 +246,6 @@ def me(request: Request) -> MeResponse:
         authenticated=True,
         username=payload.get("sub"),
         full_name=payload.get("name") or payload.get("sub"),
+        is_admin=bool(payload.get("adm")),
         auth_enabled=True,
     )

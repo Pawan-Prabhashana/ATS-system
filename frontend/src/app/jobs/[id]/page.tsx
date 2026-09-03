@@ -4,6 +4,7 @@ import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   DEMO_MODE,
+  fetchMe,
   getJob,
   getJobPullProgress,
   getJobRescoreProgress,
@@ -59,6 +60,15 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
   const [rescoreProgress, setRescoreProgress] = useState<{ processed: number; total: number } | null>(null);
   const [roleCount, setRoleCount] = useState<number | null>(null);
   const [skippedCount, setSkippedCount] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    fetchMe().then((m) => live && setIsAdmin(!!m.is_admin)).catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -230,23 +240,27 @@ export default function JobPipeline({ params }: { params: Promise<{ id: string }
                 <Stat label="Sent" value={summary.by_status.assignment_sent} />
               </div>
               <div className="mt-3 space-y-2 border-t border-line pt-3">
-                {roleCount !== null && (() => {
-                  const toPull = Math.max(0, roleCount - summary.total - skippedCount);
-                  return (
-                    <p className="text-[11px] leading-snug text-muted">
-                      <span className="font-semibold text-ink">{roleCount}</span> applicant{roleCount === 1 ? "" : "s"} picked this role
-                      {summary.total > 0 ? ` · ${summary.total} scored` : ""}
-                      {skippedCount > 0 ? ` · ${skippedCount} unreadable (skipped)` : ""}.
-                      {toPull > 0 ? ` Pull scores the ${toPull} new one${toPull === 1 ? "" : "s"}.` : " All caught up."}
-                    </p>
-                  );
-                })()}
+                {isAdmin ? (
+                  roleCount !== null && (() => {
+                    const toPull = Math.max(0, roleCount - summary.total - skippedCount);
+                    return (
+                      <p className="text-[11px] leading-snug text-muted">
+                        <span className="font-semibold text-ink">{roleCount}</span> applicant{roleCount === 1 ? "" : "s"} picked this role
+                        {summary.total > 0 ? ` · ${summary.total} scored` : ""}
+                        {skippedCount > 0 ? ` · ${skippedCount} unreadable (skipped)` : ""}.
+                        {toPull > 0 ? ` Pull scores the ${toPull} new one${toPull === 1 ? "" : "s"}.` : " All caught up."}
+                      </p>
+                    );
+                  })()
+                ) : (
+                  <p className="text-[11px] leading-snug text-muted">All applicants have been pulled.</p>
+                )}
                 <Button size="sm" variant="secondary" loading={ingesting} onClick={onIngest} className="w-full">
                   {ingesting
                     ? progress && progress.total
                       ? `Pulling ${progress.processed} of ${progress.total}…`
                       : "Starting…"
-                    : roleCount !== null
+                    : isAdmin && roleCount !== null
                       ? `Pull applicants (${Math.max(0, roleCount - summary.total - skippedCount)} new)`
                       : "Pull applicants"}
                 </Button>

@@ -24,10 +24,10 @@ from app.users import upsert_user
 
 # Full names as given; usernames are the lowercased first name (all unique here).
 REVIEWERS = [
-    ("mahima", "Mahima Passela"),
-    ("abdul", "Abdul Ashraff"),
-    ("nidarshi", "Nidarshi Sivapadam"),
-    ("pawan", "Pawan Prabhashana"),
+    ("mahima", "Mahima Passela", False),
+    ("abdul", "Abdul Ashraff", False),
+    ("nidarshi", "Nidarshi Sivapadam", False),
+    ("pawan", "Pawan Prabhashana", True),  # admin — sees pull/count internals
 ]
 
 # Additive column adds (safe, idempotent) for the candidates table.
@@ -56,9 +56,9 @@ def main() -> int:
 
     print("3) Provisioning reviewer accounts...\n")
     creds = []
-    for username, full_name in REVIEWERS:
+    for username, full_name, is_admin in REVIEWERS:
         password = secrets.token_urlsafe(9)
-        upsert_user(username, full_name, password, active=True)
+        upsert_user(username, full_name, password, active=True, is_admin=is_admin)
         creds.append((username, full_name, password))
 
     width = max(len(u) for u, _, _ in creds)

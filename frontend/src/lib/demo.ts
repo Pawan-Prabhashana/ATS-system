@@ -142,6 +142,7 @@ export const demoFetchMe = (): Me => ({
   authenticated: true,
   username: snapshot.me?.username ?? "demo",
   full_name: snapshot.me?.username ?? "Demo User",
+  is_admin: true,
   auth_enabled: true,
 });
 

@@ -29,6 +29,7 @@ class User(BaseModel):
     full_name: str
     password_hash: str
     active: bool = True
+    is_admin: bool = False
 
 
 # --------------------------------------------------------------------------- #
@@ -78,6 +79,7 @@ def get_user(username: str) -> Optional[User]:
                 full_name=row.full_name,
                 password_hash=row.password_hash,
                 active=row.active,
+                is_admin=bool(row.is_admin),
             )
     except Exception:  # noqa: BLE001 - unreachable DB -> fall back to env admin
         return None
@@ -99,6 +101,7 @@ def list_users() -> list[User]:
                     full_name=r.full_name,
                     password_hash=r.password_hash,
                     active=r.active,
+                    is_admin=bool(r.is_admin),
                 )
                 for r in rows
             ]
@@ -106,7 +109,13 @@ def list_users() -> list[User]:
         return []
 
 
-def upsert_user(username: str, full_name: str, password: str, active: bool = True) -> User:
+def upsert_user(
+    username: str,
+    full_name: str,
+    password: str,
+    active: bool = True,
+    is_admin: bool = False,
+) -> User:
     """Create or replace a user with a freshly hashed password. Postgres only."""
     from app.db.engine import session_scope
     from app.db.models import UserRow
@@ -120,4 +129,7 @@ def upsert_user(username: str, full_name: str, password: str, active: bool = Tru
         row.full_name = full_name
         row.password_hash = pw_hash
         row.active = active
-    return User(username=username, full_name=full_name, password_hash=pw_hash, active=active)
+        row.is_admin = is_admin
+    return User(
+        username=username, full_name=full_name, password_hash=pw_hash, active=active, is_admin=is_admin
+    )

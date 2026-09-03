@@ -24,7 +24,7 @@ def test_authenticate_env_admin_fallback(monkeypatch):
     monkeypatch.setenv("APP_AUTH_USERNAME", "admin")
     monkeypatch.setenv("APP_AUTH_PASSWORD", "secret-pw")
     principal = authenticate("admin", "secret-pw")
-    assert principal == {"username": "admin", "full_name": "admin"}
+    assert principal == {"username": "admin", "full_name": "admin", "is_admin": True}
     assert authenticate("admin", "wrong") is None
     assert authenticate("nobody", "secret-pw") is None
 
